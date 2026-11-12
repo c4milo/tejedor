@@ -75,7 +75,8 @@ A test must fail when the code it covers is broken. When you add a check, break 
 and confirm that a test fails. Report the result as `CAUGHT` or `NOT CAUGHT` for each mutation in
 the commit body. A `NOT CAUGHT` means that no test covers the code, so write the test. Measure a
 mutation against the narrowest target that can catch it: `zig build test-debug` or
-`zig build test-release`.
+`zig build test-release`. For a fault that shows only on Linux, or only on x86-64, that target is
+the Linux gate.
 
 A mutant that fails to compile for another reason proves nothing. Change it until it compiles,
 and run it again.
@@ -236,7 +237,8 @@ rotor on 2026-09-22.
 ## Layout
 
 - `build.zig` stays short: the build options, the one module and the test steps. Helpers belong in
-  `build/`, which does not exist yet.
+  `build/`.
+- `build/linux.zig` builds the unit tests for Linux, for the Linux gate.
 - The lint added `build/`. `build/tools.zig` wires the developer tools, and `build/lint.zig` wires
   the lint and its canary. `build.zig.zon` lists `build` in `.paths`, because `build.zig` imports
   it.
@@ -264,6 +266,8 @@ rotor on 2026-09-22.
   only the root build asks for. `tools/` holds tejedor's configuration of each rule. rotor stays
   the one dependency of the library.
 - `.githooks/pre-push` is a copy of pepegrillo's hook. It checks the commit messages of a push.
+- `tools/linux_test.sh` runs the Linux gate in Docker. `tools/docker_limit.sh` holds the time limit
+  of a container, and it is rotor's file. The lint reads the length of each shell script.
 
 ## Ask before
 
@@ -288,11 +292,26 @@ Ask Camilo before you do one of these:
 - Test: `zig build test` runs the unit tests in Debug and in ReleaseSafe, then checks the format
   of each Zig source. Every change passes it before it is committed. The tests run in both modes
   because the faults of the context switch showed only in an optimized build (decision 34,
-  "Upkeep").
+  "Upkeep"). It also compiles the unit tests for Linux on aarch64 and on x86-64, and runs none of
+  them. So a change that does not compile or assemble for Linux fails on a Mac.
 - One mode alone: `zig build test-debug` and `zig build test-release`.
 - Compile-fail check: `zig build test-compile-fail` builds the program of `tools/compile_fail/`.
   Its compile must fail with the message of the check of the Zig version. `zig build test` runs
   this step too.
+- Linux gate: `zig build test-linux && bash tools/linux_test.sh`. The build step compiles the unit
+  tests for Linux on aarch64 and on x86-64, in Debug and in ReleaseSafe, into `zig-out/linux/`.
+  It runs none of them. The script runs each one in a Docker container of its own, and stops at
+  the first failure.
+  - `bash tools/linux_test.sh linux/arm64` runs the executables of one platform alone.
+  - Docker runs an executable of the host's processor on that processor, and each other one under
+    an emulator. The script says which. On the development Mac, OrbStack runs the x86-64
+    executables with Rosetta. An emulator ran those tests, so a pass does not show what a real
+    x86-64 processor does. A real x86-64 processor runs the tests in CI.
+  - The script refuses an install that is older than a source, and it fails a container that
+    runs longer than the limit of `tools/docker_limit.sh`.
+  - `zig build test` does not run the gate, because it needs Docker.
+  - The tests of step 0 enter no io_uring. Step 1 adds the runs with io_uring and with epoll
+    (decision 34, "Upkeep").
 - Format: `zig build fmt` formats each Zig source.
 - Lint: `zig build lint` scores the cognitive complexity of each function over `build.zig`,
   `build`, `src` and `tools`. Then it runs the rules of `tools/lint`: heap, determinism,

@@ -17,8 +17,13 @@
 //! tools/lint over the tree. `zig build test` runs the lint too. The tools are built on
 //! pepegrillo, a lazy package of `build.zig.zon` that only the root build asks for. So a project
 //! that depends on tejedor never fetches it. `build/tools.zig` holds that part of the build.
+//!
+//! `zig build test-linux` builds the unit tests for Linux on aarch64 and on x86-64, in both modes,
+//! under zig-out/linux/. It runs none of them: tools/linux_test.sh runs them in Docker.
+//! `zig build test` compiles them too, and installs none (build/linux.zig).
 const std = @import("std");
 const assert = std.debug.assert;
+const linux = @import("build/linux.zig");
 const tools = @import("build/tools.zig");
 
 const zig_version = @import("src/zig_version.zig");
@@ -39,14 +44,9 @@ const root_source_file = "src/tejedor.zig";
 /// What `zig build fmt` formats, and what `zig build test` checks the format of.
 const format_paths = [_][]const u8{ "build.zig", "build.zig.zon", "src" };
 
-/// One run of the unit tests: the mode, and the name of its own step, `test-<name>`.
-const TestRun = struct {
-    name: []const u8,
-    optimize: std.builtin.OptimizeMode,
-};
-
-/// `zig build test` runs the unit tests once for each entry.
-const test_runs = [_]TestRun{
+/// `zig build test` runs the unit tests once for each entry: the mode, and the word that names
+/// its own step, `test-<name>`.
+const test_modes = [_]linux.Mode{
     .{ .name = "debug", .optimize = .Debug },
     .{ .name = "release", .optimize = .ReleaseSafe },
 };
@@ -75,26 +75,23 @@ pub fn build(b: *std.Build) void {
     );
     // The lint and the other developer tools, built on pepegrillo (build/tools.zig).
     tools.add(b, .{ .test_step = test_step, .install_step = install_step });
-    for (test_runs) |run| {
-        const module = b.createModule(.{
-            .root_source_file = b.path(root_source_file),
-            .target = target,
-            .optimize = run.optimize,
-        });
-        module.addImport("rotor", rotor_module(b, target, run.optimize));
+    for (test_modes) |mode| {
         const unit_tests = b.addTest(.{
-            .name = b.fmt("tejedor-{s}", .{run.name}),
-            .root_module = module,
+            .name = b.fmt("tejedor-{s}", .{mode.name}),
+            .root_module = test_module(b, target, mode.optimize),
         });
-        if (run.optimize == optimize) install_step.dependOn(&unit_tests.step);
+        if (mode.optimize == optimize) install_step.dependOn(&unit_tests.step);
         const run_step = &b.addRunArtifact(unit_tests).step;
         test_step.dependOn(run_step);
         const narrow_step = b.step(
-            b.fmt("test-{s}", .{run.name}),
-            b.fmt("Run the unit tests in {s} alone", .{@tagName(run.optimize)}),
+            b.fmt("test-{s}", .{mode.name}),
+            b.fmt("Run the unit tests in {s} alone", .{@tagName(mode.optimize)}),
         );
         narrow_step.dependOn(run_step);
     }
+    // The same tests for Linux, which tools/linux_test.sh runs in Docker.
+    const linux_steps = linux.add(b, .{ .modes = &test_modes, .test_module = test_module });
+    test_step.dependOn(linux_steps.compile);
 
     // The check of the Zig version must stop a compile, with its message.
     test_step.dependOn(compile_fail_step(b, target));
@@ -103,6 +100,21 @@ pub fn build(b: *std.Build) void {
     fmt_step.dependOn(&b.addFmt(.{ .paths = &format_paths }).step);
     test_step.dependOn(&b.addFmt(.{ .paths = &format_paths, .check = true }).step);
     fmt_step.dependOn(tools.format(b));
+}
+
+/// The root module of the unit tests for `target` in `optimize`, with rotor as its import.
+fn test_module(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const module = b.createModule(.{
+        .root_source_file = b.path(root_source_file),
+        .target = target,
+        .optimize = optimize,
+    });
+    module.addImport("rotor", rotor_module(b, target, optimize));
+    return module;
 }
 
 /// `zig build test-compile-fail`. The program hands `zig_version.require` the pinned version with
