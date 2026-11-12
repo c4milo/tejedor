@@ -9,6 +9,8 @@
 #     context switch showed only in an optimized build (rotor's decision 34, "Upkeep").
 #   - `probe`: `zig build bench-switch -Drelease`, the probe of the context switch. It runs only
 #     when a person starts the workflow by hand, on Linux on x86-64.
+#   - `commits`: the commit linter over the commits that a push added to main. It runs on a push
+#     only.
 #
 # The labels are rotor's. `macos-latest` is the macOS runner on Apple silicon. `ubuntu-26.04` and
 # `ubuntu-26.04-arm` are the labels of rotor's jobs that hold no baseline, and `test` holds none.
@@ -70,3 +72,38 @@ jobs:
           nproc; uname -r; grep -m1 MemTotal /proc/meminfo
       - name: The probe
         run: zig build bench-switch -Drelease
+
+  # tejedor takes no pull requests, so this job checks the commits of a push after the push. The
+  # pre-push hook checks them before the push, in a clone where a person ran `zig build hooks`.
+  # This job finds a push from a clone that has no hook, and a push with `--no-verify`.
+  #
+  # `zig build lint-commits` checks `origin/main..HEAD`, which holds no commit after a push to
+  # main. So the job installs the same linter, and gives it the range of the push. The range
+  # starts at the commit that main named before the push, and ends at the commit that it names
+  # now. The checkout takes the whole history, because the linter reads the commits from the
+  # clone.
+  #
+  # A push that makes the branch names no commit before it, and GitHub then gives a hash of zeros.
+  # The job fails with a message for that push, because it knows no range to check.
+  commits:
+    name: Commit messages
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/zig
+      - name: Each commit of this push is a Conventional Commit
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$BEFORE" in
+            *[!0]*) ;;
+            *) echo "this push names no commit before it, so the job knows no range" >&2; exit 1 ;;
+          esac
+          zig build install-commit-lint
+          ./zig-out/bin/commit_lint --range "$BEFORE..$AFTER"

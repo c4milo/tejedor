@@ -311,6 +311,10 @@ Ask Camilo before you do one of these:
   - The job `probe` runs only on a start by hand, on Linux on x86-64. It runs
     `zig build bench-switch -Drelease`, the probe of the context switch, and it prints what its
     runner is. It fails until a commit adds the step `bench-switch`.
+  - The job `commits` runs on a push only. It checks the commit messages that the push added to
+    `main`, with the linter of `tools/commit_lint.zig`. `zig build lint-commits` checks
+    `origin/main..HEAD`, which holds no commit after a push, so the job gives the linter the range
+    of the push. The job needs the lint and the CI.
   - `.github/actions/zig` downloads Zig from ziglang.org and checks it against a pinned SHA-256.
     No third-party action runs. GitHub's own `actions/cache` keeps the Zig tarball and Zig's
     package cache between runs.
