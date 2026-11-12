@@ -1,0 +1,72 @@
+# What runs on each push to main, and when a person starts the workflow by hand. tejedor takes no
+# pull requests, so no job runs for one.
+#
+# The jobs, each the command that a developer runs by hand:
+#
+#   - `test`: `zig build test`, on three kinds of GitHub-hosted runner: macOS on Apple silicon,
+#     Linux on x86-64 and Linux on arm64. It runs the unit tests in Debug and in ReleaseSafe, and
+#     each other check of the local gate. The tests run in both modes because the faults of the
+#     context switch showed only in an optimized build (rotor's decision 34, "Upkeep").
+#   - `probe`: `zig build bench-switch -Drelease`, the probe of the context switch. It runs only
+#     when a person starts the workflow by hand, on Linux on x86-64.
+#
+# The labels are rotor's. `macos-latest` is the macOS runner on Apple silicon. `ubuntu-26.04` and
+# `ubuntu-26.04-arm` are the labels of rotor's jobs that hold no baseline, and `test` holds none.
+# `ubuntu-24.04` is the label of rotor's cost probes, so `probe` runs there.
+#
+# No number from this workflow is a number of a quiet machine. The job `probe` prints what its
+# runner is, because a result names its machine (rotor's decision 34, "The fiber switch has no
+# measured cell").
+#
+# `.github/actions/zig` installs Zig. It downloads the tarball from ziglang.org and checks it
+# against the SHA-256 that the release index publishes for the system and the processor of the
+# runner. No third-party action runs here: `actions/checkout` and `actions/cache` are GitHub's
+# own. Each job has a time limit, so a test that hangs ends the job.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: zig build test, ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS arm64, runner: macos-latest }
+          - { name: Linux x86-64, runner: ubuntu-26.04 }
+          - { name: Linux arm64, runner: ubuntu-26.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/zig
+      - name: The whole local gate
+        run: zig build test
+
+  # A person starts this job by hand, because it answers a question and guards no change. Camilo
+  # reads the numbers of the probe before step 1 of the build order.
+  #
+  # The step `bench-switch` builds the probe of the context switch and runs it. Until a commit
+  # adds that step, this job fails with Zig's message: no step named 'bench-switch'. `-Drelease`
+  # selects ReleaseSafe, the mode of a release build.
+  probe:
+    name: Linux x86-64, the probe of the switch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/zig
+      - name: What this runner is
+        run: |
+          grep -m1 "model name" /proc/cpuinfo || true
+          nproc; uname -r; grep -m1 MemTotal /proc/meminfo
+      - name: The probe
+        run: zig build bench-switch -Drelease

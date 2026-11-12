@@ -304,6 +304,19 @@ Ask Camilo before you do one of these:
   `zig fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`. Then confirm
   that `.lazy = true` is still set in `build.zig.zon`, and copy the new hook.
 - Dependency: the first build fetches rotor at the pinned tag.
+- Continuous integration: `.github/workflows/ci.yml` runs on each push to `main`, and when a
+  person starts it by hand. tejedor takes no pull requests, so no job runs for one.
+  - The job `test` runs `zig build test` on three kinds of GitHub-hosted runner: macOS on Apple
+    silicon, Linux on x86-64 and Linux on arm64.
+  - The job `probe` runs only on a start by hand, on Linux on x86-64. It runs
+    `zig build bench-switch -Drelease`, the probe of the context switch, and it prints what its
+    runner is. It fails until a commit adds the step `bench-switch`.
+  - `.github/actions/zig` downloads Zig from ziglang.org and checks it against a pinned SHA-256.
+    No third-party action runs. GitHub's own `actions/cache` keeps the Zig tarball and Zig's
+    package cache between runs.
+  - A number from CI is no number of a quiet machine. It names its runner.
+  - Camilo ruled on 2026-11-12 that the package has CI on GitHub's runners (decision 34, "Ask
+    before"). "Where the work stands" holds what he ruled.
 
 ## Where the work stands
 
@@ -315,6 +328,7 @@ Camilo ruled on the package on 2026-11-12. The session asked each question with 
 | what Camilo ruled on 2026-11-12 | where it shows |
 |---|---|
 | pepegrillo gives the lint tools of the package, wired as rotor wires them (decision 34, "Ask before") | `tools/` and `build/tools.zig` |
+| The package has CI on GitHub's runners (decision 34, "Ask before"). The setup and step 0 go to `main` by a push. The package takes no pull requests, as rotor takes none | `.github/` |
 
 | step | what it holds | state |
 |---:|---|---|

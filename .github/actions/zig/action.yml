@@ -1,0 +1,75 @@
+# Installs Zig 0.16.0 for the system and the processor of the runner, and puts it on the PATH. The
+# tarball comes from ziglang.org. The step checks it against the SHA-256 that the index of that
+# release publishes for it. The four pins of the `case` below are the pins of rotor's action, for
+# the same release. Each job of .github/workflows/ci.yml installs Zig here, so each pin has one
+# place.
+#
+# GitHub's cache keeps the tarball between runs. The step checks a tarball from the cache against
+# the same SHA-256, and downloads again a tarball that fails the check. So a cache entry cannot
+# change the toolchain. The download stops a transfer that stalls, and tries again.
+#
+# The cache also keeps Zig's package cache: the packages that build.zig.zon pins. So a run does
+# not fetch them from the network. Zig checks each package against its hash when it reads it.
+#
+# To move to another release, read the `shasum` field of each new tarball from
+# https://ziglang.org/download/index.json. Then replace the version, the version in the cache key,
+# and the four pins of the `case`. `src/zig_version.zig` pins the same version, so change both in
+# one commit.
+name: Install Zig
+description: Take Zig 0.16.0 for this runner from the cache or ziglang.org, check its SHA-256 and put it on the PATH
+runs:
+  using: composite
+  steps:
+    - name: Restore the Zig tarball from the cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/zig-tarball
+        key: zig-tarball-0.16.0-${{ runner.os }}-${{ runner.arch }}
+    - name: Install Zig
+      shell: bash
+      env:
+        ZIG_VERSION: "0.16.0"
+        RUNNER_SYSTEM: ${{ runner.os }}
+        RUNNER_PROCESSOR: ${{ runner.arch }}
+        TARBALL_DIRECTORY: ${{ runner.temp }}/zig-tarball
+      run: |
+        set -euo pipefail
+        case "$RUNNER_SYSTEM/$RUNNER_PROCESSOR" in
+          Linux/X64) name=x86_64-linux sha=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00 ;;
+          Linux/ARM64) name=aarch64-linux sha=ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17 ;;
+          macOS/ARM64) name=aarch64-macos sha=b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489 ;;
+          macOS/X64) name=x86_64-macos sha=0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7 ;;
+          *) echo "no Zig is pinned for $RUNNER_SYSTEM/$RUNNER_PROCESSOR" >&2; exit 1 ;;
+        esac
+        directory="zig-$name-$ZIG_VERSION"
+        mkdir -p "$TARBALL_DIRECTORY"
+        tarball="$TARBALL_DIRECTORY/$directory.tar.xz"
+        if [ -f "$tarball" ] && echo "$sha  $tarball" | shasum -a 256 -c - > /dev/null 2>&1; then
+          echo "Zig $ZIG_VERSION from the cache"
+        else
+          rm -f "$tarball"
+          # curl stops an attempt in three cases. The connection does not open in 20 seconds.
+          # The transfer is slower than 1 KiB/s for one minute. The attempt takes more than five
+          # minutes. Then curl tries again, at most five times.
+          curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --max-time 300 \
+            --retry 5 --retry-delay 5 --retry-all-errors \
+            "https://ziglang.org/download/$ZIG_VERSION/$directory.tar.xz" -o "$tarball"
+        fi
+        echo "$sha  $tarball" | shasum -a 256 -c -
+        cd "$RUNNER_TEMP"
+        tar -xf "$tarball"
+        echo "$RUNNER_TEMP/$directory" >> "$GITHUB_PATH"
+        # One place for Zig's global cache on each runner. The step below keeps its packages. Zig
+        # 0.16.0 does not make the directory `tmp/` there. On a fresh ubuntu-26.04 runner, the
+        # fetch of a zip package then fails with FileNotFound. colibri found this on 2026-11-02.
+        echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+        mkdir -p "$HOME/.cache/zig/tmp"
+        "$RUNNER_TEMP/$directory/zig" version
+    # The packages only. The compiled artifacts beside them are large, and a run that kept them
+    # would not show what a build from nothing does.
+    - name: Restore Zig's package cache
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/zig/p
+        key: zig-packages-${{ runner.os }}-${{ hashFiles('build.zig.zon') }}
+        restore-keys: zig-packages-${{ runner.os }}-
