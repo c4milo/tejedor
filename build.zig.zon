@@ -13,10 +13,20 @@
             .url = "git+https://github.com/c4milo/rotor?ref=v0.11.0#f2890f5283fd5577243f6472648a05dda7a7f4e6",
             .hash = "rotor-0.11.0-YZkxRH0dJwBgz9oa8yO6YOTVtpFTnV6Iiz7C0OwjTffl",
         },
+        // Developer tools only: the build links no part of pepegrillo into the package. It is lazy,
+        // and only the root build asks for it. So a project that depends on tejedor never fetches
+        // it. The commit is the commit that rotor v0.11.0 pins.
+        .pepegrillo = .{
+            .url = "git+https://github.com/c4milo/pepegrillo#9ae244b9ab55eb8c7259a656d08db85c9f8c42e8",
+            .hash = "pepegrillo-0.0.0-axiFUFeJDACO8UB_GWT7OSbSKD2QOChXCg68MdfzduJq",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
+        // `build.zig` imports `build/tools.zig`, so a dependent package needs the directory.
+        "build",
         "src",
         // Apache 2.0 section 4(a): whoever passes tejedor on passes a copy of the license with it.
         "LICENSE",

@@ -12,8 +12,14 @@
 //!
 //! `zig build test-compile-fail` builds the one program of tools/compile_fail, which must not
 //! compile: it hands the check of the Zig version another version. `zig build test` runs it.
+//!
+//! `zig build lint` scores the cognitive complexity of each function, and runs the rules of
+//! tools/lint over the tree. `zig build test` runs the lint too. The tools are built on
+//! pepegrillo, a lazy package of `build.zig.zon` that only the root build asks for. So a project
+//! that depends on tejedor never fetches it. `build/tools.zig` holds that part of the build.
 const std = @import("std");
 const assert = std.debug.assert;
+const tools = @import("build/tools.zig");
 
 const zig_version = @import("src/zig_version.zig");
 
@@ -67,6 +73,8 @@ pub fn build(b: *std.Build) void {
         "test",
         "Run the unit tests in Debug and in ReleaseSafe, then check the format",
     );
+    // The lint and the other developer tools, built on pepegrillo (build/tools.zig).
+    tools.add(b, .{ .test_step = test_step, .install_step = install_step });
     for (test_runs) |run| {
         const module = b.createModule(.{
             .root_source_file = b.path(root_source_file),
@@ -94,6 +102,7 @@ pub fn build(b: *std.Build) void {
     const fmt_step = b.step("fmt", "Format each Zig source");
     fmt_step.dependOn(&b.addFmt(.{ .paths = &format_paths }).step);
     test_step.dependOn(&b.addFmt(.{ .paths = &format_paths, .check = true }).step);
+    fmt_step.dependOn(tools.format(b));
 }
 
 /// `zig build test-compile-fail`. The program hands `zig_version.require` the pinned version with

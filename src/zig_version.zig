@@ -8,8 +8,8 @@
 //!
 //! Zig parses each build file before it runs that check. So a build file that the other Zig
 //! cannot parse stops the build first, with a parse error and no reason. With Zig 0.17.1 that is
-//! `build/lint.zig` of the pinned rotor. `zig test src/zig_version.zig` with that Zig shows the
-//! message.
+//! `build/lint.zig`, of this package and of the pinned rotor. `zig test src/zig_version.zig`
+//! with that Zig shows the message.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;

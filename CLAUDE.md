@@ -87,9 +87,9 @@ line has no such proof: the line that hands `require` the version of the compile
 line, change `pinned` and confirm that the build stops with the message.
 
 With Zig 0.17.1, a whole `zig build` does not reach the check. Zig parses each build file first,
-and `build/lint.zig` of the pinned rotor holds a line that Zig 0.17.1 does not parse. So that
-build stops with a parse error and no reason. `zig test src/zig_version.zig` with that Zig shows
-the message.
+and `build/lint.zig` holds a line that Zig 0.17.1 does not parse, in the package and in the
+pinned rotor. So that build stops with a parse error and no reason. With that Zig,
+`zig test src/zig_version.zig` shows the message.
 
 An assertion is a check too. A Zig test cannot expect a panic in its own process. So an
 assertion that a caller's mistake can reach gets a halt scenario. A scenario is a program that
@@ -118,7 +118,8 @@ with its own programs under `bench/` in the place of rotor's harness.
 
 ## Conventions
 
-- Zig 0.16.0. One module, `tejedor`, and no binary.
+- Zig 0.16.0. One module, `tejedor`. A dependent package gets no binary. `zig build` installs one
+  tool for the pre-push hook, the commit linter.
 - Names spell words out: `stack_bytes`, not `stack_sz`. The vocabulary of std stays as std spells
   it (`futexWake`, `netRead`, `VTable`), and the vocabulary of rotor stays as rotor spells it.
   One-letter names are only for loop indices. `_bytes` and `_len` count bytes, and `_max` names a
@@ -222,7 +223,10 @@ rotor on 2026-09-22.
 
 - `build.zig` stays short: the build options, the one module and the test steps. Helpers belong in
   `build/`, which does not exist yet.
-- `build.zig.zon` pins rotor by tag and hash. rotor is the one dependency.
+- The lint added `build/`. `build/tools.zig` wires the developer tools, and `build/lint.zig` wires
+  the lint and its canary. `build.zig.zon` lists `build` in `.paths`, because `build.zig` imports
+  it.
+- `build.zig.zon` pins rotor by tag and hash. rotor is the one dependency of the library.
 - `src/tejedor.zig` is the root file of the module `tejedor`, the only module. A dependent package
   imports it. It lists the public names, and it runs the tests of each file.
 - `src/zig_version.zig` holds the pinned Zig version and the check that refuses each other one.
@@ -235,6 +239,11 @@ rotor on 2026-09-22.
 - The context switch is assembly, in one file. The package keeps a ledger of its own for such code
   (decision 34, "What it keeps").
 - `docs/decisions/` holds the decision records.
+- `tools/` holds the developer tools. `zig build lint` runs them, and the build links no part of
+  them into the package. The rules come from pepegrillo, a lazy package in `build.zig.zon` that
+  only the root build asks for. `tools/` holds tejedor's configuration of each rule. rotor stays
+  the one dependency of the library.
+- `.githooks/pre-push` is a copy of pepegrillo's hook. It checks the commit messages of a push.
 
 ## Ask before
 
@@ -264,12 +273,48 @@ Ask Camilo before you do one of these:
   Its compile must fail with the message of the check of the Zig version. `zig build test` runs
   this step too.
 - Format: `zig build fmt` formats each Zig source.
+- Lint: `zig build lint` scores the cognitive complexity of each function over `build.zig`,
+  `build`, `src` and `tools`. Then it runs the rules of `tools/lint`: heap, determinism,
+  unbounded-loop, relative-import, markdown, file-length, magic-numbers, defer-order,
+  unreleased-acquire, static-alignment, global-state and undefined-fill. A canary tree in
+  `build/lint.zig` proves that each rule runs. `zig build test` runs the lint too, with the tests
+  of the tools, the hook check, and the format check of `build` and `tools`.
+  - determinism refuses a clock or a random source under `src/`. `std.Io.Clock` is no finding,
+    because the `now` of the table takes one. rotor's configuration refuses `std.Io.Clock`. That
+    difference is a choice of the session, and so are the ten host calls that the rule adds
+    (`tools/lint/determinism.zig`). Camilo has not read them.
+  - global-state refuses a container-level `var` under `src/` that is not `threadlocal`.
+  - undefined-fill refuses a local array that a function under `src/` sets to `undefined`, because
+    Debug and ReleaseSafe fill it on each call. It passes an array of at most 8 elements, and an
+    array whose declaration shows a size under 64 bytes. It stops at the line
+    `const testing = std.testing;` of a file.
+  - A file whose stem ends in `_test`, or holds `_test_`, holds tests alone. magic-numbers,
+    global-state and undefined-fill do not read it.
+  - magic-numbers does not read `src/zig_version.zig`, whose one number is the minor number of the
+    pinned Zig version.
+  - A commit that adds a directory of sources adds it to the lists of `build/tools.zig`.
+- Tools: `zig build test-tools` runs the tests of the tools alone. Measure a mutation of the
+  configuration of a rule against it.
+- Commit messages: run `zig build hooks` once after you clone. It points `core.hooksPath` at
+  `.githooks`. `zig build lint-commits` checks `origin/main..HEAD`. `tools/commit_lint.zig` holds
+  the scopes of the table in "Commits", so a commit that adds a scope adds it there too.
+  `.githooks/pre-push` is a copy of pepegrillo's hook, and `zig build test` fails when the two
+  differ.
+- Pin of the tools: the first build fetches pepegrillo. To move the pin, run
+  `zig fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`. Then confirm
+  that `.lazy = true` is still set in `build.zig.zon`, and copy the new hook.
 - Dependency: the first build fetches rotor at the pinned tag.
 
 ## Where the work stands
 
 Camilo accepted rotor's decision 34 on 2026-11-11. The work on the package started on 2026-11-12.
 Nothing is released.
+
+Camilo ruled on the package on 2026-11-12. The session asked each question with its choices:
+
+| what Camilo ruled on 2026-11-12 | where it shows |
+|---|---|
+| pepegrillo gives the lint tools of the package, wired as rotor wires them (decision 34, "Ask before") | `tools/` and `build/tools.zig` |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -290,3 +335,5 @@ He reads the results of step 5 before a release.
 
 The package holds the build files, the root file with no public name, and the check of the Zig
 version.
+
+The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.
