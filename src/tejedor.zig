@@ -42,4 +42,6 @@ test "the pinned rotor gives the reactor that the package ticks" {
 
 test {
     _ = @import("zig_version.zig");
+    _ = @import("switch.zig");
+    _ = @import("switch_test.zig");
 }

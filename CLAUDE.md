@@ -80,6 +80,15 @@ mutation against the narrowest target that can catch it: `zig build test-debug` 
 A mutant that fails to compile for another reason proves nothing. Change it until it compiles,
 and run it again.
 
+A fault of the context switch can show in one build mode and on one platform alone. Measure a
+mutation of the switch where its fault shows, and give the mode and the platform with the result.
+These facts decide where a fault of a clobber list shows:
+
+- An optimized build can copy the body of `switch_context` into its caller, and a Debug build
+  calls the function. Only the copy lets a caller keep a value in a register across the switch.
+- On aarch64 macOS the compiler saves the callee-saved registers in pairs. So the function still
+  saves a register that the list misses, when the list holds the other register of its pair.
+
 The comptime check of `src/zig_version.zig` cannot fail inside a test. Its rule, `accepts`, has
 tests. `zig build test-compile-fail` proves `require`, the function that stops the compile. A
 program hands it another version, and that compile must fail with the message of the check. One
@@ -96,6 +105,11 @@ assertion that a caller's mistake can reach gets a halt scenario. A scenario is 
 breaks the assertion in a child process, and that process must die by a signal (decision 34,
 "Upkeep"). The halt check comes with step 1, which lists its first eight scenarios (decision 34,
 "Build order"). The package has no halt check before that step.
+
+Two assertions wait for the halt check: the two of `initial_context` in `src/switch.zig`. A
+caller's mistake reaches both, with a stack end that is not aligned, or with a stack end of 0. A
+mutation that deletes them is NOT CAUGHT today. Their two scenarios come beside the eight of step
+1.
 
 ## Performance discipline
 
@@ -233,11 +247,17 @@ rotor on 2026-09-22.
   `build.zig` imports it too.
 - `tools/compile_fail/` holds each program that must not compile. `build.zig` holds the message
   that such a compile must print.
-- Tests belong in the file that they test.
+- Tests belong in the file that they test. The tests of the context switch are in files of their
+  own, because they need a stack and contexts that outlive a function.
 - The limits belong in `src/constants.zig`, which comes with the first limit. A comptime assert
   stays with the constant that it pins.
-- The context switch is assembly, in one file. The package keeps a ledger of its own for such code
-  (decision 34, "What it keeps").
+- `src/switch.zig` holds the context switch of a fiber, the entry of a new fiber, and the first
+  context of a new fiber. It is assembly. The module `tejedor` exports no name of it.
+- `src/switch_test.zig` and `src/switch_test_registers.zig` hold the tests of the switch. A file
+  whose stem ends in `_test`, or holds `_test_`, holds tests alone.
+- `docs/hot-path-ledger.md` is the ledger of the package for ugly code, such as assembly
+  (decision 34, "What it keeps"). Each use has a row there, and `src/switch.zig` is the one file
+  of the library that holds such code.
 - `docs/decisions/` holds the decision records.
 - `tools/` holds the developer tools. `zig build lint` runs them, and the build links no part of
   them into the package. The rules come from pepegrillo, a lazy package in `build.zig.zon` that
@@ -253,6 +273,7 @@ Ask Camilo before you do one of these:
   with the code.
 - Add or change a named limit.
 - Change the size or the layout of a hot structure.
+- Add a file to the named files of `docs/hot-path-ledger.md`.
 - Add a dependency other than rotor.
 - Change what the first release holds.
 - Change a ruling that the first record lists.
@@ -353,5 +374,18 @@ He reads the results of step 5 before a release.
 
 The package holds the build files, the root file with no public name, and the check of the Zig
 version.
+
+The context switch and its tests are built. The switch is the code that rotor's decision 22
+removed, with its three corrections of std's clobber lists and no other change.
+
+**A fourth error of the clobber lists is known, and it is not corrected.** On x86-64 the list
+names `zmm0` to `zmm31`. A target with no AVX-512 has no such register, and the compiler then
+takes those names as no clobber. So an optimized build keeps a floating-point value in an `xmm`
+register across the switch, and the other context changes it. A test of 2026-11-12 shows it, and
+that test does not run on x86-64 with no AVX-512 (`float_registers_covered` in
+`src/switch_test.zig`). With `xmm0` to `xmm15` in the list, the test passes. Decision 34 takes the
+switch with "nothing but the names" changed, so the correction waits for Camilo's word. It needs
+his word before step 1: on x86-64, a fiber of step 1 can lose a floating-point value at each call
+that blocks.
 
 The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.
