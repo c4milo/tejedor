@@ -302,6 +302,10 @@ Ask Camilo before you do one of these:
 - Compile-fail check: `zig build test-compile-fail` builds the program of `tools/compile_fail/`.
   Its compile must fail with the message of the check of the Zig version. `zig build test` runs
   this step too.
+- Tests that do not run: a plain `zig build test` prints nothing for a test that it does not
+  run. `zig build test --summary all` gives the count of such tests for each step, and the Linux
+  gate prints a `SKIP` line for each one. Today one test does not run on each platform, where a
+  known error of the switch shows ("Where the work stands").
 - Linux gate: `zig build test-linux && bash tools/linux_test.sh`. The build step compiles the unit
   tests for Linux on aarch64 and on x86-64, in Debug and in ReleaseSafe, into `zig-out/linux/`.
   It runs none of them. The script runs each one in a Docker container of its own, and stops at
@@ -409,5 +413,18 @@ floating-point value in an `xmm` register across the switch. The other context c
 The list of the package names `xmm0` to `xmm15` too. Decision 34 takes the switch with "nothing
 but the names" changed, and record 2 departs from that sentence. Record 2 also says what the
 correction does not cover.
+
+**Two more errors of the clobber lists are known, and they are not corrected.** A test of
+2026-11-12 shows each one, in `src/switch_test.zig`. Each test does not run where its error shows.
+Each correction needs Camilo's word before step 1, as the fourth did. On a platform with such an
+error, a fiber of step 1 can lose the value at each call that blocks.
+
+| what the list misses | where the test failed, in ReleaseSafe | the test, and where it does not run | what a changed list did |
+|---|---|---|---|
+| the condition flags of aarch64, `nzcv` | aarch64 macOS on `mac`, and aarch64 Linux in Docker | "a comparison before a switch decides the same way after the switch", on aarch64 (`flags_covered`) | with `nzcv` in the list, the test passed |
+| the x87 registers of x86-64, which hold an `f80` value | x86-64 Linux in Docker, under Rosetta | "the main context and a fiber each keep an f80 value across a switch", on x86-64 (`extended_covered`) | with `st0` to `st7` in the list, the test still failed. Those names have no effect in Zig 0.16.0 (record 2) |
+
+With a `noinline` `switch_context` and no change of a list, both tests passed in ReleaseSafe on
+the three platforms. That is a change of the design, and it is Camilo's choice too.
 
 The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.

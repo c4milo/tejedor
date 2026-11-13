@@ -288,6 +288,145 @@ test "the main context and a fiber each keep a floating-point value across a swi
     }
 }
 
+/// True where the clobber list of the switch covers the condition flags.
+///
+/// The assembly of the switch changes no flag, and the context that runs in between does. On
+/// x86_64 the compiler takes each block of assembly as a change of the flags. On aarch64 the list
+/// must name `nzcv`, and std's list does not. So the optimized build keeps the flags of a
+/// comparison across the switch. On 2026-11-12 the test below failed for that reason in
+/// ReleaseSafe, on aarch64 macOS and on aarch64 Linux. It passed with `nzcv` in the list.
+///
+/// That is a fifth error of the clobber lists. Camilo ruled on the fourth (record 2 of
+/// `docs/decisions/`), and a fifth correction needs his word too. Until then the test does not
+/// run where the error shows. The test runner reports it as a test that it did not run.
+const flags_covered = builtin.cpu.arch != .aarch64;
+
+/// What the test of the condition flags keeps on each side of a switch. The test reads and
+/// writes each field through a volatile pointer, so the compiler keeps the order of the reads
+/// and writes.
+const FlagsMail = struct {
+    left: u64 = 0,
+    right: u64 = 0,
+    low: u64 = 0,
+    high: u64 = 0,
+    before: u64 = 0,
+    after: u64 = 0,
+    fiber_left: u64 = 0,
+    fiber_right: u64 = 0,
+    fiber_before: u64 = 0,
+    fiber_after: u64 = 0,
+};
+
+/// The two values that a comparison chooses between.
+const flags_low = 111;
+const flags_high = 999;
+
+/// It compares its own two values. It uses the result one time before its switch and one time
+/// after it, as `flags_round` does on the main context.
+fn flags_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
+    const mail: *volatile FlagsMail = @ptrFromInt(argument);
+    for (0..mail_rounds) |_| {
+        const left = mail.fiber_left;
+        const right = mail.fiber_right;
+        const low_before = mail.low;
+        const high_before = mail.high;
+        const less = left < right;
+        mail.fiber_before = if (less) low_before else high_before;
+        switch_context(&to_main);
+        const low = mail.low;
+        const high = mail.high;
+        mail.fiber_after = if (less) low else high;
+    }
+    unreachable;
+}
+
+/// One round of the main context. It compares its two values. It uses the result one time before
+/// the switch and one time after it. The comparison, the switch and both uses are in this one
+/// function, so the compiler can keep the flags of the comparison across the switch.
+noinline fn flags_round(mail: *volatile FlagsMail) void {
+    const left = mail.left;
+    const right = mail.right;
+    const low_before = mail.low;
+    const high_before = mail.high;
+    const less = left < right;
+    mail.before = if (less) low_before else high_before;
+    switch_context(&to_fiber);
+    const low = mail.low;
+    const high = mail.high;
+    mail.after = if (less) low else high;
+}
+
+test "a comparison before a switch decides the same way after the switch" {
+    if (!supported) return error.SkipZigTest;
+    if (!flags_covered) return error.SkipZigTest;
+    var storage: FlagsMail = .{};
+    const mail: *volatile FlagsMail = &storage;
+    start_fiber(end_of(&stack), @intFromPtr(mail), flags_fiber);
+    mail.low = flags_low;
+    mail.high = flags_high;
+    for (0..mail_rounds) |round| {
+        // In an even round the main context compares 1 with 2, and the fiber compares 2 with 1.
+        // In an odd round each one compares the other way. So in each round the flags of the
+        // one are wrong for the other.
+        mail.left = 1 + round % 2;
+        mail.right = 2 - round % 2;
+        mail.fiber_left = mail.right;
+        mail.fiber_right = mail.left;
+        flags_round(mail);
+        const expected: u64 = if (round % 2 == 0) flags_low else flags_high;
+        try testing.expectEqual(expected, mail.before);
+        try testing.expectEqual(expected, mail.after);
+        // From the second round, the fiber ran the code after its own switch. That code used the
+        // comparison of the round before, which went the way of the main context in this round.
+        if (round > 0) try testing.expectEqual(expected, mail.fiber_after);
+    }
+}
+
+/// True where the clobber list of the switch covers the registers that hold an `f80` value.
+///
+/// On x86_64 the compiler computes an `f80` value in the x87 registers, and the list names none
+/// of them. So the optimized build keeps an `f80` value there across the switch, and the other
+/// context changes it. On 2026-11-12 the test below failed for that reason in ReleaseSafe on
+/// x86_64 Linux, under Rosetta. It still failed with `st0` to `st7` in the list.
+///
+/// That is a sixth error of the clobber lists, and no correction of the list is known. It needs
+/// Camilo's word too. Until then the test does not run where the error shows.
+const extended_covered = builtin.cpu.arch != .x86_64;
+
+/// What the main context and a fiber pass to each other in the test of an `f80` value.
+const ExtendedMail = struct {
+    to_fiber: usize = 0,
+    half_to_main: f80 = 0,
+};
+
+/// It does what `halving_fiber` does, with an `f80` sum.
+fn extended_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
+    const mail: *ExtendedMail = @ptrFromInt(argument);
+    var half_sum: f80 = 0;
+    for (0..mail_rounds) |_| {
+        half_sum += @as(f80, @floatFromInt(mail.to_fiber)) / 2;
+        mail.half_to_main = half_sum;
+        switch_context(&to_main);
+    }
+    unreachable;
+}
+
+test "the main context and a fiber each keep an f80 value across a switch" {
+    if (!supported) return error.SkipZigTest;
+    if (!extended_covered) return error.SkipZigTest;
+    var mail: ExtendedMail = .{};
+    start_fiber(end_of(&stack), @intFromPtr(&mail), extended_fiber);
+    var half_sum: f80 = 0;
+    for (0..mail_rounds) |round| {
+        const value = 3 * round + 7;
+        mail.to_fiber = value;
+        switch_context(&to_fiber);
+        half_sum += @as(f80, @floatFromInt(value)) / 2;
+        // Half of an integer is exact in an `f80`, so the two sums are equal bit for bit.
+        try testing.expectEqual(half_sum, mail.half_to_main);
+    }
+}
+
 /// The order in which three contexts ran: one letter for each time that a context ran.
 const order_max = 8;
 var order: [order_max]u8 = @splat(0);

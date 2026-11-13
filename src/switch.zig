@@ -18,6 +18,14 @@
 //!    build kept a floating-point value in an `xmm` register across the switch, and the other
 //!    context changed it.
 //!
+//! Two more errors are known, and this file does not correct them. Each needs Camilo's word.
+//! `switch_test.zig` holds a test for each, at `flags_covered` and at `extended_covered`:
+//!
+//! - On aarch64 the list names no `nzcv`. The optimized build kept the flags of a comparison
+//!   across the switch, and the other context changed them.
+//! - On x86_64 the list covers no x87 register. The optimized build kept an `f80` value in one
+//!   across the switch, and the other context changed it.
+//!
 //! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
 //! this copy (rotor's decision 34, "Upkeep").
 //!

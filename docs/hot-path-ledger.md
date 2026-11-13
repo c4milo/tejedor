@@ -30,3 +30,6 @@ The assembly of L1 is std 0.16.0's `fiber.contextSwitch`, with four changes to i
 The header of `src/switch.zig` gives each change and its reason. rotor's decision 22 found the
 first three. Record 2 of `docs/decisions/` holds the fourth, which names the `xmm` registers of
 x86-64. A Zig upgrade compares std's file with that copy (rotor's decision 34, "Upkeep").
+
+Two errors of the lists of L1 are known, and they are not corrected: the condition flags of
+aarch64, and the x87 registers of x86-64. `CLAUDE.md`, "Where the work stands", holds both.
