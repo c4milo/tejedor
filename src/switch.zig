@@ -20,17 +20,27 @@
 //!    build kept the flags of a comparison across the switch, and the other context changed them.
 //!    Record 3 holds this correction.
 //!
-//! Record 3 also sets how a caller calls `switch_context`. `call_modifier` holds that form, and
-//! each caller passes it to `@call`:
+//! Record 3 sets the form in which a caller gets the switch, and record 5 puts that form in
+//! `switch_context` itself. `switch_copied` holds the assembly. Each caller of the package calls
+//! `switch_context` with a plain call:
 //!
-//! - On aarch64 each caller holds a copy of the body of the function. So the clobber list decides
-//!   what a caller keeps across the switch, and the tests prove each name of the list.
-//! - On x86_64 each caller calls the function, and the compiler never inlines the call. The calling
-//!   convention then covers each register that the clobber type of Zig 0.16.0 cannot name. These
-//!   are the x87 registers, `k0` to `k7` of AVX-512, `r16` to `r31` of APX, and `xmm16` to
-//!   `xmm31`. With a copy of the switch, an optimized build kept a value in such a register across
-//!   the switch. The list stays as it is. No test can prove the name of a caller-saved register
+//! - On aarch64 `switch_context` is `switch_copied`, an inline function. So each caller holds a
+//!   copy of the switch, in Debug and in ReleaseSafe. The clobber list then decides what a caller
+//!   keeps across the switch. A test can see a name of the list only where the compiler keeps a
+//!   value in that register. Records 3 and 5 give the mutations of the list. No test proves `p0`
+//!   to `p15`, `ffr`, `fpcr` or `fpsr`.
+//! - On x86_64 `switch_context` is a function that is never inlined, so each caller calls it. The
+//!   calling convention then covers each caller-saved register that the list does not cover. The
+//!   clobber type of Zig 0.16.0 has no working name for the x87 registers. It has no name for `k0`
+//!   to `k7` of AVX-512, or for `r16` to `r31` of APX. It names `xmm16` to `xmm31`, and the list
+//!   does not hold them (record 2). With a copy of the switch, an optimized build kept a value in
+//!   such a register across the switch. No test can prove the name of a caller-saved register
 //!   there, because a caller keeps no value in such a register across a call.
+//!
+//! Zig refuses the other form at compile time: a call with `.always_inline` of the x86_64 function,
+//! and a call with `.never_inline` of the aarch64 one. `switch_other_form` gives the other form of
+//! an architecture to the tests and the probe. The lint rule `switch-form` refuses a reference to
+//! that name in each other file under `src/`. Its header lists the references that it cannot see.
 //!
 //! The switch saves no control register: not FPCR on aarch64, and not MXCSR or the x87 control
 //! word on x86_64. So the rounding mode and the exception masks belong to the thread, and not to
@@ -89,16 +99,6 @@ comptime {
         assert(@sizeOf(Switch) == 16);
     }
 }
-
-/// How each caller calls `switch_context`: the modifier that it passes to `@call` (record 3).
-///
-/// - On aarch64 it is `.always_inline`. Each caller holds a copy of the body of the function, in
-///   Debug and in ReleaseSafe.
-/// - On x86_64 it is `.never_inline`. Each caller calls the function, in Debug and in ReleaseSafe.
-pub const call_modifier: std.builtin.CallModifier = switch (builtin.cpu.arch) {
-    .x86_64 => .never_inline,
-    else => .always_inline,
-};
 
 /// The alignment of a stack's end, which System V and AAPCS64 both require.
 pub const stack_end_alignment = 16;
@@ -164,9 +164,38 @@ fn Entry(comptime main: Main) type {
 }
 
 /// Saves the context that runs into `message.old`, and resumes `message.new`. It returns when
-/// another switch names this context as its `new`. It has the C calling convention, so its
-/// argument is in the first argument register. `switch_test.zig` relies on that.
-pub fn switch_context(message: *const Switch) callconv(.c) void {
+/// another switch names this context as its `new`. A caller calls it with a plain call, and gets
+/// the form of record 3:
+///
+/// - On aarch64 it is `switch_copied`, an inline function. So each caller holds a copy of the
+///   switch, in Debug and in ReleaseSafe.
+/// - On x86_64 it is `switch_called`, a function that is never inlined. So each caller calls it,
+///   in Debug and in ReleaseSafe.
+pub const switch_context = switch (builtin.cpu.arch) {
+    .x86_64 => switch_called,
+    else => switch_copied,
+};
+
+/// The form of the switch that the package does not use on this architecture (record 5). A plain
+/// call of it is a call on aarch64 and a copy on x86_64, in Debug and in ReleaseSafe. Only the
+/// tests and the probe name it. The lint rule `switch-form` keeps it out of the other files under
+/// `src/`, because on x86_64 a copy loses an `f80` value (record 3). The header of the rule lists
+/// the references that it cannot see.
+pub const switch_other_form = switch (builtin.cpu.arch) {
+    .x86_64 => switch_copied,
+    else => switch_called,
+};
+
+/// A function that holds a copy of the switch, and that no caller can copy. A call of it with
+/// `.always_inline` does not compile. It has the C calling convention, so its argument is in the
+/// first argument register. `switch_test.zig` relies on that.
+noinline fn switch_called(message: *const Switch) callconv(.c) void {
+    switch_copied(message);
+}
+
+/// The assembly of the switch. Each caller holds a copy of it, because it is an inline function,
+/// and `switch_called` is one such caller. A call of it with `.never_inline` does not compile.
+inline fn switch_copied(message: *const Switch) void {
     _ = switch (builtin.cpu.arch) {
         .aarch64 => asm volatile (
             \\ ldp x0, x2, [x1]

@@ -27,16 +27,21 @@ quiet machine.
 
 ### The two forms
 
-The probe measures two forms of the call of `switch_context` (record 3):
+The probe measures two forms of the switch (record 3):
 
-| form | how a caller calls the switch | the form of the package on |
+| form | what a caller holds | the form of the package on |
 |---|---|---|
-| a copy | `@call(.always_inline, ...)`: each caller holds a copy of the body of the function | aarch64 |
-| a call | `@call(.never_inline, ...)`: each caller calls the function, which saves and restores the callee-saved registers | x86-64 |
+| a copy | a copy of `switch_body`, the assembly of the switch | aarch64 |
+| a call | a call of a function that holds the switch, and that saves and restores the callee-saved registers | x86-64 |
+
+The probe gets the form of the package with a plain call of `switch_context`, as the package does.
+It gets the other form with a plain call of `switch_other_form`: a call on aarch64, and a copy on
+x86-64 (record 5).
 
 A report gives the form of the package first, and says so in its row. The other form follows it,
 to compare with. On a Mac the x86-64 build runs under an emulator, so no number of a call on
-x86-64 is in a result.
+x86-64 is in a result. The CI ran the probe one time on a real x86-64 processor, and record 5 gives
+those numbers.
 
 The two files of `results/` came before record 3, and their rows name the forms in other words.
 "As the compiler builds the call" was a copy: the disassembly of that build showed the body of
@@ -105,7 +110,8 @@ A run on a busy machine is no final number. Each file of `bench/results/` says w
 | `results/switch-mac-2026-11-13.md` | `mac` | four busy runs, at load averages of 17 to 34, and no final number |
 | `results/switch-orbstack-2026-11-13.md` | `orbstack` | four busy runs, at load averages of 28 to 42 on the host, and no final number |
 
-No run on a quiet `mac` and no run on a GitHub runner exists yet.
+No run on a quiet `mac` exists yet. The one run on a GitHub runner, on 2026-11-13, is in record 5
+and in no file of `results/`.
 
 ## Files
 
@@ -114,4 +120,4 @@ No run on a quiet `mac` and no run on a GitHub runner exists yet.
 | `switch_probe.zig` | the probe of the context switch, and its report |
 | `measure.zig` | the method that times a probe: batches, the median, the p99, and two loops back to back |
 | `machine.zig` | the machine and the load average, for the report |
-| `results/` | one Markdown file for each recorded run |
+| `results/` | the reports of the runs that the steps above recorded. A file can hold several runs. Record 5 holds the one CI run |

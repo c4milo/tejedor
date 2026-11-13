@@ -5,14 +5,17 @@
 //! A fiber here records what it sees in a `var` of this file, and the test checks that `var` on
 //! the main context. So no fiber calls `std.testing`, which can need more stack than a fiber has.
 //!
-//! Each fiber and each test calls the switch in the form of the package, through
-//! `switch_in_form`. On aarch64 that form is a copy of the body of `switch_context` in the caller.
-//! So a caller can keep a value in a register across the switch, and a test can see a register
-//! that the clobber list misses. On x86_64 that form is a call. The test of the message register
-//! calls the function itself.
+//! Each fiber and each test calls `switch_context` with a plain call, as the package does. On
+//! aarch64 that is a copy of the switch in the caller. So a caller can keep a value in a register
+//! across the switch, and a test can see a register that the clobber list misses. On x86_64 it is
+//! a call. The test of the message register jumps to a function that is out of line:
+//! `switch_context` on x86_64, and `switch_other_form` on aarch64.
 //!
-//! `switch_test_registers.zig` holds the test of the callee-saved registers, and
-//! `switch_test_floats.zig` holds the test of each floating-point register.
+//! The other files of these tests:
+//!
+//! - `switch_test_registers.zig`: the test of the callee-saved registers;
+//! - `switch_test_floats.zig`: the test of each floating-point register;
+//! - `switch_test_form.zig`: the test of the form of `switch_context`.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -26,10 +29,13 @@ const switch_context = switching.switch_context;
 
 const testing = std.testing;
 
-/// Switches with `message`, in the form of the package: `@call` with `call_modifier`.
-inline fn switch_in_form(message: *const Switch) void {
-    @call(switching.call_modifier, switch_context, .{message});
-}
+/// The switch as a function that is out of line, with the C calling convention. On x86_64 it is
+/// `switch_context`. On aarch64 `switch_context` is inline and has no address, so it is
+/// `switch_other_form`, the call.
+pub const switch_out_of_line = switch (builtin.cpu.arch) {
+    .x86_64 => &switch_context,
+    else => &switching.switch_other_form,
+};
 
 /// Clears the register that the switch takes its message in, `x1` or `rsi`. Then it jumps to the
 /// switch with the message in the first argument register. A switch that reads the message
@@ -40,15 +46,15 @@ fn call_with_message_register_cleared() callconv(.naked) void {
     switch (builtin.cpu.arch) {
         .x86_64 => asm volatile (
             \\ xorl %%esi, %%esi
-            \\ jmp %[switch_context:P]
+            \\ jmp %[switch_out_of_line:P]
             :
-            : [switch_context] "X" (&switch_context),
+            : [switch_out_of_line] "X" (switch_out_of_line),
         ),
         .aarch64 => asm volatile (
             \\ mov x1, xzr
-            \\ b %[switch_context]
+            \\ b %[switch_out_of_line]
             :
-            : [switch_context] "X" (&switch_context),
+            : [switch_out_of_line] "X" (switch_out_of_line),
         ),
         else => @compileError("no fiber switch for this architecture"),
     }
@@ -154,7 +160,7 @@ fn first_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment
     seen_frame = @frameAddress();
     const frame: *const usize = @ptrFromInt(seen_frame);
     seen_caller_frame = frame.*;
-    switch_in_form(&to_main);
+    switch_context(&to_main);
     unreachable;
 }
 
@@ -168,8 +174,8 @@ fn saved_frame_pointer(context: *const Context) usize {
 }
 
 /// The switch back from `first_fiber` saved the frame pointer of the fiber in `fiber_context`.
-/// Where the compiler copied the switch into `first_fiber`, that is the frame of `first_fiber`.
-/// Where the compiler called the switch, it is the frame of `switch_context`, and the first word
+/// On aarch64 `first_fiber` holds a copy of the switch, so that is the frame of `first_fiber`. On
+/// x86_64 `first_fiber` calls the switch, so it is the frame of `switch_context`, and the first word
 /// of that frame names the frame of `first_fiber`.
 fn expect_saved_frame(stack_end: usize) !void {
     const saved = saved_frame_pointer(&fiber_context);
@@ -195,7 +201,7 @@ test "a new fiber starts with its argument, on an aligned stack that ends at the
     seen_frame = 0;
     seen_return_address = 1;
     start_fiber(stack_end, argument, first_fiber);
-    switch_in_form(&to_fiber);
+    switch_context(&to_fiber);
 
     try testing.expectEqual(argument, seen_argument);
     // The compiler keeps the alignment that the function had at its entry. So an aligned stack
@@ -220,7 +226,7 @@ fn counting_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignm
     const count: *usize = @ptrFromInt(argument);
     for (0..switches_in_a_row) |_| {
         count.* += 1;
-        switch_in_form(&to_main);
+        switch_context(&to_main);
     }
     unreachable;
 }
@@ -232,7 +238,7 @@ test "a fiber runs one time for each of many switches in a row" {
     // `sum` lives across each switch on the main context, as `count` does on the fiber.
     var sum: usize = 0;
     for (1..switches_in_a_row + 1) |round| {
-        switch_in_form(&to_fiber);
+        switch_context(&to_fiber);
         try testing.expectEqual(round, count);
         sum += count;
     }
@@ -258,7 +264,7 @@ fn replying_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignm
     for (0..mail_rounds) |round| {
         sum += mail.to_fiber;
         mail.to_main = sum + round;
-        switch_in_form(&to_main);
+        switch_context(&to_main);
     }
     unreachable;
 }
@@ -271,7 +277,7 @@ test "a value passes each way across a switch, and a fiber keeps its locals" {
     for (0..mail_rounds) |round| {
         const value = 3 * round + 7;
         mail.to_fiber = value;
-        switch_in_form(&to_fiber);
+        switch_context(&to_fiber);
         sum += value;
         try testing.expectEqual(sum + round, mail.to_main);
     }
@@ -286,7 +292,7 @@ fn halving_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignme
     for (0..mail_rounds) |_| {
         half_sum += @as(f64, @floatFromInt(mail.to_fiber)) / 2;
         mail.half_to_main = half_sum;
-        switch_in_form(&to_main);
+        switch_context(&to_main);
     }
     unreachable;
 }
@@ -299,7 +305,7 @@ test "the main context and a fiber each keep a floating-point value across a swi
     for (0..mail_rounds) |round| {
         const value = 3 * round + 7;
         mail.to_fiber = value;
-        switch_in_form(&to_fiber);
+        switch_context(&to_fiber);
         half_sum += @as(f64, @floatFromInt(value)) / 2;
         // Half of an integer is exact in an `f64`, so the two sums are equal bit for bit.
         try testing.expectEqual(half_sum, mail.half_to_main);
@@ -337,7 +343,7 @@ fn flags_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment
         const high_before = mail.high;
         const less = left < right;
         mail.fiber_before = if (less) low_before else high_before;
-        switch_in_form(&to_main);
+        switch_context(&to_main);
         const low = mail.low;
         const high = mail.high;
         mail.fiber_after = if (less) low else high;
@@ -360,7 +366,7 @@ noinline fn flags_round(mail: *volatile FlagsMail) void {
     const high_before = mail.high;
     const less = left < right;
     mail.before = if (less) low_before else high_before;
-    switch_in_form(&to_fiber);
+    switch_context(&to_fiber);
     const low = mail.low;
     const high = mail.high;
     mail.after = if (less) low else high;
@@ -409,7 +415,7 @@ fn extended_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignm
     for (0..mail_rounds) |_| {
         half_sum += @as(f80, @floatFromInt(mail.to_fiber)) / 2;
         mail.half_to_main = half_sum;
-        switch_in_form(&to_main);
+        switch_context(&to_main);
     }
     unreachable;
 }
@@ -422,7 +428,7 @@ test "the main context and a fiber each keep an f80 value across a switch" {
     for (0..mail_rounds) |round| {
         const value = 3 * round + 7;
         mail.to_fiber = value;
-        switch_in_form(&to_fiber);
+        switch_context(&to_fiber);
         half_sum += @as(f80, @floatFromInt(value)) / 2;
         // Half of an integer is exact in an `f80`, so the two sums are equal bit for bit.
         try testing.expectEqual(half_sum, mail.half_to_main);
@@ -447,17 +453,17 @@ var second_to_first: Switch align(@alignOf(Switch)) = undefined;
 
 fn relay_first(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
     note(@intCast(argument));
-    switch_in_form(&first_to_second);
+    switch_context(&first_to_second);
     note(@intCast(argument));
-    switch_in_form(&first_to_main);
+    switch_context(&first_to_main);
     unreachable;
 }
 
 fn relay_second(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
     note(@intCast(argument));
-    switch_in_form(&second_to_main);
+    switch_context(&second_to_main);
     note(@intCast(argument));
-    switch_in_form(&second_to_first);
+    switch_context(&second_to_first);
     unreachable;
 }
 
@@ -475,10 +481,10 @@ test "a switch saves the context that its message names, and resumes the other, 
 
     // The main context starts the first fiber, which starts the second, which comes back here.
     note('m');
-    switch_in_form(&main_to_first);
+    switch_context(&main_to_first);
     // The second fiber resumes after its own switch, and it resumes the first after its switch.
     note('m');
-    switch_in_form(&main_to_second);
+    switch_context(&main_to_second);
     note('m');
     try testing.expectEqualStrings("mabmbam", order[0..order_len]);
 }
@@ -487,4 +493,5 @@ test {
     _ = @import("switch_test_registers.zig");
     _ = @import("switch_test_floats.zig");
     _ = @import("switch_test_entry.zig");
+    _ = @import("switch_test_form.zig");
 }

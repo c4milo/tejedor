@@ -37,6 +37,9 @@ tejedor is not:
   switch, and names `nzcv` in the aarch64 list. Read it before you change a call of the switch.
 - `docs/decisions/0004-the-argument-of-a-new-fiber-is-above-its-stack-pointer.md` sets the first
   context and the entry of a new fiber.
+- `docs/decisions/0005-a-plain-call-of-the-switch-and-a-probe-of-a-jump.md` puts the form of record
+  3 in the declaration of `switch_context`. Read it before you change a call of the switch, or the
+  probe.
 - `docs/decisions/` holds the records of tejedor. Each later record takes the next number.
 
 If you are about to do something a record rejected, say so and stop. Do not reverse it in code.
@@ -92,11 +95,15 @@ mutation of the switch where its fault shows, and give the mode and the platform
 These facts decide where a fault of a clobber list shows:
 
 - Only a copy of the switch lets a caller keep a value in a register across the switch. On
-  aarch64 each caller holds a copy, in Debug and in ReleaseSafe (record 3). A Debug build keeps
-  few values in registers, so most faults of the aarch64 list show in ReleaseSafe alone.
-- On x86-64 each caller calls the function (record 3). So no test can catch a wrong name of a
-  caller-saved register in the x86-64 list, and such a mutation is NOT CAUGHT. That is expected.
-  The test of `src/switch_test_registers.zig` proves the names of the callee-saved registers.
+  aarch64 each caller holds a copy, in Debug and in ReleaseSafe (records 3 and 5). A Debug build
+  keeps few values in registers, so most faults of the aarch64 list show in ReleaseSafe alone.
+- On x86-64 each caller calls the function (records 3 and 5). So no test can catch a wrong name
+  of a caller-saved register in the x86-64 list, and such a mutation is NOT CAUGHT. That is
+  expected. The test of `src/switch_test_registers.zig` proves the names of the callee-saved
+  registers.
+- The test of `src/switch_test_form.zig` and two programs of `tools/compile_fail/` prove the form
+  of `switch_context` (record 5). Measure a mutation of the form against the step
+  `zig build test-compile-fail` too.
 - On aarch64 macOS the compiler saves the callee-saved registers in pairs. So the function still
   saves a register that the list misses, when the list holds the other register of its pair.
 - On x86-64 the names `zmm0` to `zmm31` kept no value out of an `xmm` register, for a target with
@@ -261,26 +268,32 @@ rotor on 2026-09-22.
   imports it. It lists the public names, and it runs the tests of each file.
 - `src/zig_version.zig` holds the pinned Zig version and the check that refuses each other one.
   `build.zig` imports it too.
-- `tools/compile_fail/` holds each program that must not compile. `build.zig` holds the message
-  that such a compile must print.
+- `tools/compile_fail/` holds each program that must not compile. `build.zig` and
+  `build/switch_checks.zig` hold the message that each compile must print.
 - Tests belong in the file that they test. The tests of the context switch are in files of their
   own, because they need a stack and contexts that outlive a function.
 - The limits belong in `src/constants.zig`, which comes with the first limit. A comptime assert
   stays with the constant that it pins.
 - `src/switch.zig` holds the context switch of a fiber, the entry of a new fiber, and the first
-  context of a new fiber. It is assembly. It also holds `call_modifier`, the form in which each
-  caller calls the switch (record 3). The module `tejedor` exports no name of it.
-- `src/switch_test.zig`, `src/switch_test_registers.zig`, `src/switch_test_floats.zig` and
-  `src/switch_test_entry.zig` hold the tests of the switch. A file whose stem ends in `_test`, or
-  holds `_test_`, holds tests alone.
+  context of a new fiber. It is assembly. `switch_copied`, a private inline function, holds the
+  assembly of the switch. `switch_context` is the switch that the package calls with a plain
+  call: an inline function on aarch64, and a function that is never inlined on x86-64 (records 3
+  and 5). `switch_other_form` has the other form, and only the tests and the probe name it. The
+  module `tejedor` exports no name of the file.
+- `src/switch_test.zig`, `src/switch_test_registers.zig`, `src/switch_test_floats.zig`,
+  `src/switch_test_entry.zig` and `src/switch_test_form.zig` hold the tests of the switch. A file
+  whose stem ends in `_test`, or holds `_test_`, holds tests alone.
+- `build/switch_checks.zig` holds the checks of the switch that are compiles.
 - `docs/hot-path-ledger.md` is the ledger of the package for ugly code, such as assembly
   (decision 34, "What it keeps"). Each use has a row there, and `src/switch.zig` is the one file
   of the library that holds such code.
 - `docs/decisions/` holds the decision records.
-- `bench/` holds each program that measures the package, and `bench/results/` holds one Markdown
-  file for each recorded run. `bench/README.md` says what each program measures, and how to record
-  a result. A bench program takes a file of the library as a module of its own, which
-  `build/bench.zig` makes. So the module `tejedor` exports no name for a probe.
+- `bench/` holds each program that measures the package. `bench/results/` holds the reports of the
+  runs that the steps of `bench/README.md` recorded. A file can hold several runs. Record 5 holds
+  the one CI run.
+  `bench/README.md` says what each program measures, and how to record a result. A bench program
+  takes a file of the library as a module of its own, which `build/bench.zig` makes. So the
+  module `tejedor` exports no name for a probe.
 - `tools/` holds the developer tools. `zig build lint` runs them, and the build links no part of
   them into the package. The rules come from pepegrillo, a lazy package in `build.zig.zon` that
   only the root build asks for. `tools/` holds tejedor's configuration of each rule. rotor stays
@@ -317,9 +330,10 @@ Ask Camilo before you do one of these:
   them. So a change that does not compile or assemble for Linux fails on a Mac. It runs the unit
   tests of the bench programs in both modes, and it compiles the probe for the host and for Linux.
 - One mode alone: `zig build test-debug` and `zig build test-release`.
-- Compile-fail check: `zig build test-compile-fail` builds the program of `tools/compile_fail/`.
-  Its compile must fail with the message of the check of the Zig version. `zig build test` runs
-  this step too.
+- Compile-fail check: `zig build test-compile-fail` builds each program of `tools/compile_fail/`,
+  and each compile must fail with its message. One program hands the check of the Zig version
+  another version. Two ask for the form of the switch that the other architecture uses: a copy on
+  x86-64, and a call on aarch64 (record 5). `zig build test` runs this step too.
 - Tests that do not run: a plain `zig build test` prints nothing for a test that it does not
   run. `zig build test --summary all` gives the count of such tests for each step, and the Linux
   gate prints a `SKIP` line for each one. Each test of the switch runs on each platform of step
@@ -351,9 +365,9 @@ Ask Camilo before you do one of these:
 - Lint: `zig build lint` scores the cognitive complexity of each function over `build.zig`,
   `bench`, `build`, `src` and `tools`. Then it runs the rules of `tools/lint`: heap, determinism,
   unbounded-loop, relative-import, markdown, file-length, magic-numbers, defer-order,
-  unreleased-acquire, static-alignment, global-state and undefined-fill. A canary tree in
-  `build/lint.zig` proves that each rule runs. `zig build test` runs the lint too, with the tests
-  of the tools, the hook check, and the format check of `build` and `tools`.
+  unreleased-acquire, static-alignment, global-state, undefined-fill and switch-form. A canary
+  tree in `build/lint.zig` proves that each rule runs. `zig build test` runs the lint too, with
+  the tests of the tools, the hook check, and the format check of `build` and `tools`.
   - determinism refuses a clock or a random source under `src/`. `std.Io.Clock` is no finding,
     because the `now` of the table takes one. rotor's configuration refuses `std.Io.Clock`. That
     difference is a choice of the session, and so are the ten host calls that the rule adds
@@ -367,6 +381,9 @@ Ask Camilo before you do one of these:
     global-state and undefined-fill do not read it.
   - magic-numbers does not read `src/zig_version.zig`, whose one number is the minor number of the
     pinned Zig version.
+  - switch-form refuses a reference to `switch_other_form` under `src/`, but in `src/switch.zig`
+    and in the test files (record 5). Its header lists the references that it cannot see. The
+    rule is a choice of the session, and Camilo has not ruled it.
   - A commit that adds a directory of sources adds it to the lists of `build/tools.zig`.
 - Tools: `zig build test-tools` runs the tests of the tools alone. Measure a mutation of the
   configuration of a rule against it.
@@ -385,7 +402,7 @@ Ask Camilo before you do one of these:
     silicon, Linux on x86-64 and Linux on arm64.
   - The job `probe` runs only on a start by hand, on Linux on x86-64. It runs
     `zig build bench-switch -- --machine github`, the probe of the context switch, and it prints
-    what its runner is. No run of it exists yet.
+    what its runner is. It ran one time, on 2026-11-13 at `ded6989` (record 5).
   - The job `commits` runs on a push only. It checks the commit messages that the push added to
     `main`, with the linter of `tools/commit_lint.zig`. `zig build lint-commits` checks
     `origin/main..HEAD`, which holds no commit after a push, so the job gives the linter the range
@@ -415,9 +432,16 @@ measured failures and the busy numbers of the probe first:
 
 | what Camilo ruled on 2026-11-13 | where it shows |
 |---|---|
-| On aarch64 the list names `nzcv`, and each caller holds a copy of the switch. On x86-64 each caller calls the switch, and the compiler never inlines the call | record 3, and `call_modifier` in `src/switch.zig` |
+| On aarch64 the list names `nzcv`, and each caller holds a copy of the switch. On x86-64 each caller calls the switch, and the compiler never inlines the call | record 3. Since record 5, the declaration of `switch_context` in `src/switch.zig` |
 | The switch saves no control register. The rounding mode and the exception masks belong to the thread, and a fiber that changes them restores them before it blocks | record 3, and the header of `src/switch.zig` |
 | The argument of a new fiber is above its first stack pointer, and `main` starts with a return address of zero, on both architectures | record 4, and `initial_context` in `src/switch.zig` |
+
+Later on 2026-11-13 the CI ran the probe on a real x86-64 processor, and Camilo ruled a second
+round. He asked first why the switch is never inlined on x86-64, and read the session's answer:
+
+| what Camilo ruled on 2026-11-13, second round | where it shows |
+|---|---|
+| "Call, and probe a jump": a plain call of `switch_context` is a call on x86-64 and a copy on aarch64, and `call_modifier` goes | record 5, `switch_context` in `src/switch.zig`, `src/switch_test_form.zig` and `tools/compile_fail/` |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -440,32 +464,15 @@ The package holds the build files, the root file with no public name, and the ch
 version.
 
 The context switch and its tests are built. The switch is the code that rotor's decision 22
-removed, with its three corrections of std's clobber lists. It also holds two corrections of
-the package's own, the fourth and the fifth.
+removed, with its three corrections of std's clobber lists. The records of the package hold each
+change since then:
 
-**The fourth correction is record 2, by Camilo's ruling of 2026-11-12.** On x86-64 the list of std
-names `zmm0` to `zmm31` alone. For a target with no AVX-512, an optimized build then kept a
-floating-point value in an `xmm` register across the switch. The other context changed it.
-The list of the package names `xmm0` to `xmm15` too. Decision 34 takes the switch with "nothing
-but the names" changed, and record 2 departs from that sentence. Record 2 also says what the
-correction does not cover.
-
-**The fifth correction and the form of the call are record 3, by Camilo's ruling of
-2026-11-13.** On aarch64 the list names `nzcv`, and each caller holds a copy of the switch. So the
-tests prove each name of the aarch64 list. On x86-64 each caller calls `switch_context`, and the
-compiler never inlines the call. The calling convention then covers the x87 registers, `k0` to
-`k7`, `r16` to `r31` and `xmm16` to `xmm31`. The clobber type of Zig 0.16.0 cannot cover them.
-Each test of the switch runs on each platform.
-
-**The control registers belong to the thread, by Camilo's ruling of 2026-11-13 (record 3).** The
-switch saves no FPCR on aarch64, and no MXCSR or x87 control word on x86-64. So the rounding mode
-and the exception masks are those of the thread. A fiber that changes them restores them before
-it blocks. Zig code does not change them, and assembly or C code can.
-
-**The first context of a new fiber is record 4, by Camilo's ruling of 2026-11-13.** The argument
-is above the first stack pointer, so a signal handler on the fiber's stack does not write over it.
-That fault showed on aarch64 Linux. `main` starts with a return address of zero, so a stack trace
-from a fiber ends at the frame of `main`. std's `Kqueue.mainIdleEntry` does neither.
+| record | ruled | what it holds |
+|---|---|---|
+| 2 | 2026-11-12 | the fourth correction: the x86-64 list names `xmm0` to `xmm15` beside std's `zmm` names. What that does not cover |
+| 3 | 2026-11-13 | the fifth correction: the aarch64 list names `nzcv`. A copy of the switch on aarch64, and a call on x86-64, where the calling convention covers what the list cannot. The control registers belong to the thread |
+| 4 | 2026-11-13 | the first context of a new fiber: its argument is above the first stack pointer, and `main` starts with a return address of zero |
+| 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it |
 
 Step 0's check names three platforms. This is what ran on 2026-11-13:
 
@@ -475,12 +482,16 @@ Step 0's check names three platforms. This is what ran on 2026-11-13:
 | aarch64 Linux | Docker on `mac`, with the Linux gate | Debug and ReleaseSafe |
 | x86-64 Linux | Docker on `mac`, with the Linux gate, under Rosetta | Debug and ReleaseSafe |
 
-No real x86-64 processor has run the tests. CI runs them on one, and no push has started the CI.
+On 2026-11-13 the CI ran `zig build test` at `ded6989` on GitHub's three kinds of runner: macOS on
+Apple silicon, Linux on arm64 and Linux on x86-64. Each job passed. That run is the first run of
+the tests on a real x86-64 processor.
 
 The probe is built, and `bench/results/` holds two files, for `mac` and for `orbstack`. Each
-holds four runs. Each run was on a busy machine, so none is a final number. The probe has not
-run on a quiet `mac` or on a GitHub runner. Those runs came before record 3. The probe now gives
-the form of the package first, and the other form beside it. The two forms are a copy of the
-switch in the caller, and a call. `bench/README.md` says which row of the old runs is which form.
+holds four runs. Each run was on a busy machine, so none is a final number. Those runs came before
+record 3. The probe has not run on a quiet `mac`. It ran one time on a GitHub runner, an AMD EPYC
+9V74, in the CI run of 2026-11-13 at `ded6989`. Record 5 gives those numbers, and no file of
+`bench/results/` holds them. The probe gives the form of the package first, and the other form
+beside it. The two forms are a copy of the switch in the caller, and a call. `bench/README.md`
+says which row of the old runs is which form.
 
 The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.

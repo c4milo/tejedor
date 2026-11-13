@@ -30,6 +30,7 @@ const canary_rules = [_][]const u8{
     "static-alignment",
     "global-state",
     "undefined-fill",
+    "switch-form",
 };
 
 /// The most lines that a source file may hold (tools/lint/file_length.zig).
@@ -50,6 +51,7 @@ const canary_source =
     \\    _ = &buffer;
     \\    try connect_all(&client);
     \\    defer close_all();
+    \\    _ = other.switch_other_form;
     \\}
     \\
 ++ "//\n" ** file_length_lines_max;

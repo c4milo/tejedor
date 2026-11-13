@@ -44,7 +44,7 @@ var fiber_out: [values_count]f64 = undefined;
 /// Reads each value of `in`, switches with `message`, and then writes each value to `out`. Each
 /// read and each write goes through a volatile pointer, so each value lives across the switch,
 /// in a register or on the stack. The main context and the fiber both run this one function. It
-/// calls the switch in the form of the package (`switching.call_modifier`).
+/// calls `switch_context` with a plain call, as the package does.
 noinline fn switch_with_values(
     message: *const Switch,
     in: *const volatile [values_count]f64,
@@ -52,7 +52,7 @@ noinline fn switch_with_values(
 ) void {
     var values: [values_count]f64 = undefined;
     inline for (0..values_count) |index| values[index] = in[index];
-    @call(switching.call_modifier, switch_context, .{message});
+    switch_context(message);
     inline for (0..values_count) |index| out[index] = values[index];
 }
 

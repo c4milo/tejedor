@@ -102,7 +102,7 @@ fn signal_then_enter() callconv(.naked) noreturn {
 
 fn entry_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
     seen_argument = argument;
-    @call(switching.call_modifier, switch_context, .{&to_main});
+    switch_context(&to_main);
     unreachable;
 }
 
@@ -134,7 +134,7 @@ test "a new fiber gets its argument when a signal arrives at its first stack poi
     step_context = step_of(&fiber_context);
     to_step = .{ .old = &main_context, .new = &step_context };
     to_main = .{ .old = &fiber_context, .new = &main_context };
-    @call(switching.call_modifier, switch_context, .{&to_step});
+    switch_context(&to_step);
 
     // The handler ran one time, on the fiber's stack, before the entry read the argument.
     try testing.expectEqual(1, handled);

@@ -10,8 +10,9 @@
 //! Assertions stay on in a release build. So the build offers Debug and ReleaseSafe alone:
 //! `-Drelease` selects ReleaseSafe, and no option admits ReleaseFast or ReleaseSmall.
 //!
-//! `zig build test-compile-fail` builds the one program of tools/compile_fail, which must not
-//! compile: it hands the check of the Zig version another version. `zig build test` runs it.
+//! `zig build test-compile-fail` builds each program of tools/compile_fail, and none may compile.
+//! One hands the check of the Zig version another version. Two ask for the form of the context
+//! switch that the other architecture uses (build/switch_checks.zig). `zig build test` runs them.
 //!
 //! `zig build lint` scores the cognitive complexity of each function, and runs the rules of
 //! tools/lint over the tree. `zig build test` runs the lint too. The tools are built on
@@ -28,6 +29,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const bench = @import("build/bench.zig");
 const linux = @import("build/linux.zig");
+const switch_checks = @import("build/switch_checks.zig");
 const tools = @import("build/tools.zig");
 
 const zig_version = @import("src/zig_version.zig");
@@ -99,8 +101,11 @@ pub fn build(b: *std.Build) void {
     // The programs that measure the package.
     bench.add(b, .{ .target = target, .test_step = test_step, .modes = &test_modes });
 
-    // The check of the Zig version must stop a compile, with its message.
-    test_step.dependOn(compile_fail_step(b, target));
+    // The check of the Zig version must stop a compile, with its message. So must a call of the
+    // context switch in the form of the other architecture.
+    const compile_fail = compile_fail_step(b, target);
+    switch_checks.add(b, .{ .compile_fail_step = compile_fail });
+    test_step.dependOn(compile_fail);
 
     const fmt_step = b.step("fmt", "Format each Zig source");
     fmt_step.dependOn(&b.addFmt(.{ .paths = &format_paths }).step);
@@ -150,7 +155,7 @@ fn compile_fail_step(b: *std.Build, target: std.Build.ResolvedTarget) *std.Build
     ) };
     const step = b.step(
         "test-compile-fail",
-        "Require the check of the Zig version to stop a compile with its message",
+        "Require each program of tools/compile_fail to stop its compile with its message",
     );
     step.dependOn(&compile.step);
     return step;

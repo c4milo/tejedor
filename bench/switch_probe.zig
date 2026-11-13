@@ -12,11 +12,12 @@
 //! - That probe held a copy of the switch, as an `inline` function. This probe calls the function
 //!   of the package.
 //! - That probe was one row of a table, where this one is a program.
-//! - This probe measures two forms of the call. In the first, each caller holds a copy of the body
-//!   of `switch_context`. In the second, each caller calls the function, so the second form also
-//!   holds the registers that the function saves and restores. The package uses the copy on
-//!   aarch64 and the call on x86_64 (`switching.call_modifier`, record 3). The report gives the
-//!   form of the package first, and the other form beside it.
+//! - This probe measures two forms of the switch. In the first, each caller holds a copy of
+//!   `switch_body`. In the second, each caller calls a function that holds it, so the second form
+//!   also holds the registers that the function saves and restores. The package uses the copy on
+//!   aarch64 and the call on x86_64 (record 3). A plain call of `switch_context` gives the form of
+//!   the package, and a plain call of `switch_other_form` gives the other form (record 5).
+//!   The report gives the form of the package first, and the other form beside it.
 //!
 //! For each form the probe starts one fiber on a stack of its own. After that, the main context
 //! and the fiber switch to each other, and nothing else runs. So the number is the switch alone.
@@ -114,9 +115,12 @@ const Outcome = struct {
     }
 };
 
-/// The form of the package on this architecture, and the other form, which the report gives
-/// beside it to compare with.
-const package_form = switching.call_modifier;
+/// The form of the package on this architecture, as a modifier of `@call`: a copy on aarch64 and a
+/// call on x86_64 (record 3). The other form is the one that the report gives beside it.
+const package_form: std.builtin.CallModifier = switch (builtin.cpu.arch) {
+    .x86_64 => .never_inline,
+    else => .always_inline,
+};
 const other_form: std.builtin.CallModifier = switch (package_form) {
     .always_inline => .never_inline,
     .never_inline => .always_inline,
@@ -132,11 +136,20 @@ fn form_text(modifier: std.builtin.CallModifier) []const u8 {
     };
 }
 
-/// The fiber and the two loops for one form of the call of `switch_context`. `.always_inline`
-/// copies the body of the function into both sides. `.never_inline` keeps the function out of
-/// line on both sides.
+/// The fiber and the two loops for one form of the switch. `.always_inline` names the copy of the
+/// switch on both sides. `.never_inline` names a call of a function that holds it, on both sides.
 fn Form(comptime modifier: std.builtin.CallModifier) type {
     return struct {
+        /// One switch in this form. The form of the package is a plain call of `switch_context`,
+        /// as the package makes it. The other form is a plain call of `switch_other_form`.
+        inline fn switch_once(message: *const switching.Switch) void {
+            if (modifier == package_form) {
+                switching.switch_context(message);
+            } else {
+                switching.switch_other_form(message);
+            }
+        }
+
         /// The whole life of the fiber: it switches back to the main context each time that the
         /// main context switches to it. After the last sample the main context does not switch
         /// to it again. So the fiber stays at its switch until the process ends, and the function
@@ -147,7 +160,7 @@ fn Form(comptime modifier: std.builtin.CallModifier) type {
             const switcher: *Switcher = @ptrFromInt(argument);
             while (true) {
                 switcher.returns += 1;
-                @call(modifier, switching.switch_context, .{&switcher.to_main});
+                switch_once(&switcher.to_main);
             }
         }
 
@@ -159,9 +172,7 @@ fn Form(comptime modifier: std.builtin.CallModifier) type {
             }
 
             pub fn run_second(loops: *Loops, batch: u32) void {
-                for (0..batch) |_| {
-                    @call(modifier, switching.switch_context, .{&loops.switcher.to_fiber});
-                }
+                for (0..batch) |_| switch_once(&loops.switcher.to_fiber);
             }
         };
 
@@ -372,7 +383,7 @@ test "for each form, the fiber runs one time for each switch to it, and both loo
     // A batch of 1,000 takes many steps of the clock, also for the loop of the empty function.
     const small: measure.Plan = .{ .warmup = 2, .samples = 4, .batch = 1000 };
     const outcomes = run_each_form(small, &values);
-    try testing.expectEqual(switching.call_modifier, outcomes.package.modifier);
+    try testing.expectEqual(package_form, outcomes.package.modifier);
     try testing.expect(outcomes.other.modifier != outcomes.package.modifier);
     for ([_]Outcome{ outcomes.package, outcomes.other }) |outcome| {
         try testing.expectEqual(@as(u64, 6000), outcome.switches);

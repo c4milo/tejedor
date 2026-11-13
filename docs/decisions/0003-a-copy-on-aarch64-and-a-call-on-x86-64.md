@@ -4,16 +4,23 @@ Status: **accepted**. Camilo ruled on 2026-11-13, on the form of the call and on
 registers. The session wrote this record the same day, with the change. The rulings are Camilo's.
 The reasons against each alternative below are the session's, and Camilo has not read them.
 
+Note of 2026-11-13, second round: record 5 keeps the two forms of this record, and removes
+`call_modifier`. The declaration of `switch_context` now holds the form. A plain call of it is a
+copy on aarch64 and a call on x86-64. Zig refuses a call that asks for the other form. The
+parts below that name `call_modifier` give the state of the first round.
+
 ## The decision
 
 1. **On aarch64 the clobber list names `nzcv`, and each caller holds a copy of the switch.** This
-   is the fifth correction of std's clobber lists. `call_modifier` in `src/switch.zig` is
-   `.always_inline`, and each caller passes it to `@call`. Each test that proves a name of the
-   list calls the switch in that form. So the proof does not depend on a choice of the optimizer.
-2. **On x86-64 each caller calls `switch_context`, and the compiler never inlines the call.**
-   `call_modifier` is `.never_inline`. The calling convention then covers each register that the
-   clobber type of Zig 0.16.0 cannot name. The x86-64 list stays as it is, with the `xmm` names
-   of record 2.
+   is the fifth correction of std's clobber lists. Each test that proves a name of the list calls
+   the switch in that form. So the proof does not depend on a choice of the optimizer. In the first
+   round `call_modifier` was `.always_inline`, and each caller passed it to `@call`. Since record 5
+   `switch_context` is an inline function on aarch64.
+2. **On x86-64 each caller calls `switch_context`, and the compiler never inlines the call.** The
+   calling convention then covers each register that the clobber type of Zig 0.16.0 cannot name.
+   The x86-64 list stays as it is, with the `xmm` names of record 2. In the first round
+   `call_modifier` was `.never_inline`. Since record 5 `switch_context` is a function that is
+   never inlined on x86-64.
 3. **The rounding mode and the exception masks belong to the thread.** The switch saves no
    control register. A fiber that changes one restores it before it blocks.
 
@@ -104,8 +111,10 @@ No real x86-64 processor ran the probe, so the table gives no number for the cal
 ## What departs from std and from rotor's decision 34
 
 - **std.** The aarch64 list names `nzcv`, which std's list does not. That is the fifth change of
-  the lists, and the header of `src/switch.zig` lists each one. `call_modifier` is new: std's
-  `contextSwitch` is an ordinary function.
+  the lists, and the header of `src/switch.zig` lists each one. std's `contextSwitch` is an
+  `inline fn`, so each caller of std holds a copy, on each architecture. The package keeps that
+  form on aarch64, and calls the switch on x86-64. `call_modifier` was new, and record 5 replaced it
+  with the form of the declaration.
 - **rotor's decision 34, "Where the code starts".** It takes the switch with "nothing but the
   names" changed. Record 2 departed from that sentence first, and this record adds `nzcv` and the
   form of the call.
@@ -115,9 +124,9 @@ No real x86-64 processor ran the probe, so the table gives no number for the cal
   `inline` copy of the switch. On x86-64 the package now calls the switch, and no real x86-64
   processor measured that call.
 
-A forced inline is ugly code, so row L3 of `docs/hot-path-ledger.md` holds `call_modifier`. The
-package changes no file of rotor. A note in rotor's decision 34 that points at this record is
-rotor's to add.
+A forced inline is ugly code, so row L3 of `docs/hot-path-ledger.md` holds it. Since record 5 that
+row names the inline function of aarch64. The package changes no file of rotor. A note in rotor's
+decision 34 that points at this record is rotor's to add.
 
 ## What a call on x86-64 does not prove
 
@@ -155,6 +164,9 @@ runs were under Rosetta.
 | each one of `xmm0` to `xmm15` out alone, 16 mutations | - | - | -, n |
 | `zmm0` to `zmm31` out; `mm0` to `mm7` out | - | - | -, n |
 | each one of `rax`, `rcx`, `rdx`, `rdi`, `r8` to `r11`, `fpsr`, `fpcr`, `mxcsr`, `rflags`, `dirflag` and `memory` out alone, 14 mutations | - | - | -, n |
+
+The rows that name `call_modifier` are mutations of the first round. Record 5 gives the mutations
+of the form that replaced it.
 
 How to read the table:
 

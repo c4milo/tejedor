@@ -21,8 +21,8 @@ So they have no row.
 
 | id | file and function | technique | why plain Zig cannot do it | what checks it | date |
 |---|---|---|---|---|---|
-| L1 | `src/switch.zig`, `switch_context` | inline assembly, with a clobber list of each register that it does not save | no statement of Zig changes the stack pointer and jumps to code on another stack | the tests of `src/switch_test.zig`, `src/switch_test_registers.zig` and `src/switch_test_floats.zig`, in Debug and in ReleaseSafe. The Linux gate runs them for aarch64 and for x86-64 | 2026-11-12 |
-| L3 | `src/switch.zig`, `call_modifier` | a forced inline on aarch64: each caller copies the body of `switch_context`, with `@call(.always_inline, ...)` | plain Zig leaves the choice to the compiler. A call takes the proof from the aarch64 list (record 3) | the tests call the switch in this form, and the mutations of the aarch64 list are CAUGHT in ReleaseSafe | 2026-11-13 |
+| L1 | `src/switch.zig`, the assembly of `switch_copied`, which is private | inline assembly, with a clobber list of each register that it does not save | no statement of Zig changes the stack pointer and jumps to code on another stack | the tests of `src/switch_test.zig`, `src/switch_test_registers.zig` and `src/switch_test_floats.zig`, in Debug and in ReleaseSafe. The Linux gate runs them for aarch64 and for x86-64 | 2026-11-12 |
+| L3 | `src/switch.zig`, `switch_copied`, which is `switch_context` on aarch64 | a forced inline: an `inline fn`, so each caller holds a copy of the switch | plain Zig leaves the choice to the compiler. A call takes the proof from the aarch64 list (records 3 and 5) | the test of `src/switch_test_form.zig`, `tools/compile_fail/switch_call_on_aarch64.zig`, and the mutations of the aarch64 list, CAUGHT in ReleaseSafe | 2026-11-13 |
 | L2 | `src/switch.zig`, `Entry(main).entry` | a naked function in assembly | a new fiber has no caller, so its first instructions load the argument from the stack and jump to `main` | the test "a new fiber starts with its argument, on an aligned stack that ends at the stack's end". On Linux, the test of `src/switch_test_entry.zig` (record 4) | 2026-11-12 |
 
 A row of rotor's ledger holds a count before the technique and a count after it. Rows L1 and L2
@@ -36,6 +36,6 @@ first three. Record 2 of `docs/decisions/` holds the fourth, which names the `xm
 x86-64. Record 3 holds the fifth, which names `nzcv` on aarch64. A Zig upgrade compares std's file
 with that copy (rotor's decision 34, "Upkeep").
 
-On x86-64 the package calls L1, and the compiler never inlines the call (record 3). The calling
-convention then covers the registers that the clobber type of Zig 0.16.0 cannot name, such as the
-x87 registers.
+On x86-64 `switch_context` is `switch_called`, a function that holds a copy of L1 and is never
+inlined (records 3 and 5). So each caller calls it. The calling convention then covers the
+registers that the clobber type of Zig 0.16.0 cannot name, such as the x87 registers.

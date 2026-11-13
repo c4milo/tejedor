@@ -2,9 +2,12 @@
 //!
 //! The assembly of the switch saves three things: the stack pointer, the frame pointer, and the
 //! address to resume at. Each other register is in its clobber list. So the compiler saves each
-//! callee-saved register in `switch_context` before the assembly runs, and restores it after. The
-//! compiler does not save a register that the list misses, and the context that runs in between
-//! can then change it.
+//! callee-saved register in a function that holds the switch, before the assembly runs, and
+//! restores it after. The compiler does not save a register that the list misses, and the context
+//! that runs in between can then change it.
+//!
+//! The test calls the switch from assembly, so it needs a function that is out of line:
+//! `switch_context` on x86_64, and `switch_other_form` on aarch64 (`switch_test.zig`).
 //!
 //! The test gives each callee-saved register a value of its own, and switches to a fiber. The
 //! fiber gives each of those registers another value, and switches back. Then each side reads
@@ -19,7 +22,7 @@ const Switch = switching.Switch;
 const initial_context = switching.initial_context;
 const stack_end_alignment = switching.stack_end_alignment;
 const supported = switching.supported;
-const switch_context = switching.switch_context;
+const switch_out_of_line = @import("switch_test.zig").switch_out_of_line;
 
 const testing = std.testing;
 
@@ -74,7 +77,7 @@ comptime {
 /// 1. It saves each callee-saved register of its caller, and the pointer `seen`, on the stack.
 /// 2. It writes the stack pointer to `seen.stack_before`.
 /// 3. It loads each callee-saved register from `set`.
-/// 4. It calls `switch_context` with the message.
+/// 4. It calls the switch with the message.
 /// 5. After the switch back, it writes each of those registers, and the stack pointer, to `seen`.
 /// 6. It restores the registers of its caller, and returns.
 fn set_switch_and_read() callconv(.naked) void {
@@ -94,7 +97,7 @@ fn set_switch_and_read() callconv(.naked) void {
             \\ movq 24(%%rsi), %%r14
             \\ movq 32(%%rsi), %%r15
             \\ movq 40(%%rsi), %%rbp
-            \\ callq %[switch_context:P]
+            \\ callq %[switch_out_of_line:P]
             \\ movq (%%rsp), %%rdx
             \\ movq %%rbx, 0(%%rdx)
             \\ movq %%r12, 8(%%rdx)
@@ -112,7 +115,7 @@ fn set_switch_and_read() callconv(.naked) void {
             \\ popq %%rbx
             \\ retq
             :
-            : [switch_context] "X" (&switch_context),
+            : [switch_out_of_line] "X" (switch_out_of_line),
         ),
         .aarch64 => asm volatile (
             \\ sub sp, sp, #176
@@ -139,7 +142,7 @@ fn set_switch_and_read() callconv(.naked) void {
             \\ ldp d10, d11, [x1, #104]
             \\ ldp d12, d13, [x1, #120]
             \\ ldp d14, d15, [x1, #136]
-            \\ bl %[switch_context]
+            \\ bl %[switch_out_of_line]
             \\ ldr x9, [sp, #160]
             \\ stp x19, x20, [x9, #0]
             \\ stp x21, x22, [x9, #16]
@@ -166,7 +169,7 @@ fn set_switch_and_read() callconv(.naked) void {
             \\ add sp, sp, #176
             \\ ret
             :
-            : [switch_context] "X" (&switch_context),
+            : [switch_out_of_line] "X" (switch_out_of_line),
         ),
         else => @compileError("no fiber switch for this architecture"),
     }

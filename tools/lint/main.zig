@@ -34,6 +34,7 @@ const rules = .{
     @import("static_alignment.zig"),
     @import("global_state.zig"),
     @import("undefined_fill.zig"),
+    @import("switch_form.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -60,6 +61,7 @@ test "the driver holds each rule that CLAUDE.md names, in order" {
         "static-alignment",
         "global-state",
         "undefined-fill",
+        "switch-form",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {
