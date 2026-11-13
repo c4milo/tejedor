@@ -55,9 +55,10 @@ Each run below was on 2026-11-12, on `mac`, for the baseline x86-64 processor. N
 The fault shows only in the optimized build. A Debug build calls `switch_context` as a function,
 and a caller keeps no value in an `xmm` register across a call.
 
-The test also proves each of the sixteen names. The session made the Linux run in ReleaseSafe
+The test also proved each of the sixteen names. The session made the Linux run in ReleaseSafe
 sixteen more times, each with one name out of the list. The test failed each time, with "expected
-7, found 3.5".
+7, found 3.5". Since record 3 the switch is a call on x86-64, so no test can prove these names
+now. Record 3 says why the list keeps them.
 
 The first commit of the switch, `bbf51c8`, held std's list. It did not run this test for a target
 with no AVX-512.
@@ -77,7 +78,8 @@ with no AVX-512.
    register across a real call, by the calling convention. In a trial with a `noinline` switch and
    std's list, the test passed in ReleaseSafe. But this changes how each caller reaches the
    switch, on each processor, and the probe of step 0 measures what that costs. It is a change of
-   the design, and no change of a list. Camilo did not rule on it.
+   the design, and no change of a list. On 2026-11-12 Camilo did not rule on it. On 2026-11-13 he
+   ruled for a call on x86-64, beside this list (record 3).
 5. **Wait for a correction in std.** A release of the package pins one Zig version, and Zig
    0.17.1 has the same file.
 
@@ -113,7 +115,8 @@ rotor's to add.
   compiler prints a warning for each copy of the switch, because `ffr` is a reserved register.
   The tests compile, and nothing ran.
 - **Two more errors of the lists.** The session measured them on the same day, with a trial test
-  for each. They are not corrected. Each needs Camilo's word, as this one did.
+  for each. Record 3 corrects both, by Camilo's ruling of 2026-11-13: `nzcv` in the aarch64 list,
+  and a call on x86-64.
 
 | what the list misses | where the trial test failed, in ReleaseSafe | what a changed list did |
 |---|---|---|
@@ -129,11 +132,14 @@ only for the names `~{st}` and `~{st(1)}` to `~{st(7)}`. With those names in the
 small function, the compiler saved the `f80` value around the block of assembly. With Zig's
 names it did not. So no change of the list covers an `f80` value in Zig 0.16.0.
 
+Since record 3, each caller on x86-64 calls the switch. The calling convention then covers each
+register of this part that the list does not cover.
+
 ## Upkeep
 
 A Zig upgrade compares std's switch with the copy of the package (rotor's decision 34, "Upkeep").
-The copy now differs from std 0.16.0 in four places, and the header of `src/switch.zig` lists
-them. If a later std names the `xmm` registers, this correction goes.
+The copy now differs from std 0.16.0 in five places, and the header of `src/switch.zig` lists
+them. Record 3 holds the fifth. If a later std names the `xmm` registers, this correction goes.
 
 ## Sources
 

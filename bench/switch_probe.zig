@@ -12,10 +12,11 @@
 //! - That probe held a copy of the switch, as an `inline` function. This probe calls the function
 //!   of the package.
 //! - That probe was one row of a table, where this one is a program.
-//! - This probe measures two forms of the call. `switch_context` is an ordinary function, so the
-//!   compiler decides for each caller if it calls the function or copies its body into the
-//!   caller. The first form leaves that to the compiler. The second form never inlines the call.
-//!   So the second form also holds the registers that the function saves and restores.
+//! - This probe measures two forms of the call. In the first, each caller holds a copy of the body
+//!   of `switch_context`. In the second, each caller calls the function, so the second form also
+//!   holds the registers that the function saves and restores. The package uses the copy on
+//!   aarch64 and the call on x86_64 (`switching.call_modifier`, record 3). The report gives the
+//!   form of the package first, and the other form beside it.
 //!
 //! For each form the probe starts one fiber on a stack of its own. After that, the main context
 //! and the fiber switch to each other, and nothing else runs. So the number is the switch alone.
@@ -113,8 +114,27 @@ const Outcome = struct {
     }
 };
 
-/// The fiber and the two loops for one form of the call of `switch_context`. `.auto` is the call
-/// as the package writes it. `.never_inline` keeps the function out of line on both sides.
+/// The form of the package on this architecture, and the other form, which the report gives
+/// beside it to compare with.
+const package_form = switching.call_modifier;
+const other_form: std.builtin.CallModifier = switch (package_form) {
+    .always_inline => .never_inline,
+    .never_inline => .always_inline,
+    else => @compileError("the package calls the switch with a copy or with a call"),
+};
+
+/// The words of the report for a form of the call.
+fn form_text(modifier: std.builtin.CallModifier) []const u8 {
+    return switch (modifier) {
+        .always_inline => "with a copy of `switch_context` in the caller",
+        .never_inline => "with a call of `switch_context`",
+        else => "with the call as the compiler builds it",
+    };
+}
+
+/// The fiber and the two loops for one form of the call of `switch_context`. `.always_inline`
+/// copies the body of the function into both sides. `.never_inline` keeps the function out of
+/// line on both sides.
 fn Form(comptime modifier: std.builtin.CallModifier) type {
     return struct {
         /// The whole life of the fiber: it switches back to the main context each time that the
@@ -162,20 +182,20 @@ fn Form(comptime modifier: std.builtin.CallModifier) type {
 
 /// The outcome of each form.
 const Outcomes = struct {
-    /// The compiler decided if it inlines `switch_context`.
-    plain: Outcome,
-    /// Each call of `switch_context` stayed out of line.
-    out_of_line: Outcome,
+    /// The form of the package.
+    package: Outcome,
+    /// The other form.
+    other: Outcome,
 
     fn measured(outcomes: *const Outcomes) bool {
-        return outcomes.plain.measured() and outcomes.out_of_line.measured();
+        return outcomes.package.measured() and outcomes.other.measured();
     }
 };
 
 fn run_each_form(run_plan: measure.Plan, values: *const [3][]f64) Outcomes {
-    const plain = Form(.auto).run(run_plan, values);
-    const out_of_line = Form(.never_inline).run(run_plan, values);
-    return .{ .plain = plain, .out_of_line = out_of_line };
+    const package = Form(package_form).run(run_plan, values);
+    const other = Form(other_form).run(run_plan, values);
+    return .{ .package = package, .other = other };
 }
 
 /// What the report says about the run, beside the numbers.
@@ -288,8 +308,8 @@ fn print_numbers(
 ) Writer.Error!void {
     try writer.writeAll("| what one sample times | median, ns | p99, ns | least, ns |\n" ++
         "|---|---:|---:|---:|\n");
-    try print_form(writer, "as the compiler builds the call", &outcomes.plain);
-    try print_form(writer, "with `switch_context` never inlined", &outcomes.out_of_line);
+    try print_form(writer, "the form of the package", &outcomes.package);
+    try print_form(writer, "the other form", &outcomes.other);
     try writer.print("\nEach sample is the time of a batch of {d} operations, divided by {d}." ++
         " For each form, the run kept\n{d} samples, after {d} batches whose times it threw" ++
         " away. The p99 is the p99 of batch means, and not\nof single operations.\n", .{
@@ -304,8 +324,11 @@ fn print_numbers(
 }
 
 /// The three rows of one form. A form that measured nothing says why, where its numbers go.
-fn print_form(writer: *Writer, form: []const u8, outcome: *const Outcome) Writer.Error!void {
-    try writer.print("| one switch to a fiber and one switch back, {s} | ", .{form});
+fn print_form(writer: *Writer, role: []const u8, outcome: *const Outcome) Writer.Error!void {
+    try writer.print("| one switch to a fiber and one switch back, {s} ({s}) | ", .{
+        form_text(outcome.modifier),
+        role,
+    });
     if (outcome.returns != outcome.switches) {
         return writer.print("FAILED: the fiber ran {d} times for {d} switches | | |\n", .{
             outcome.returns,
@@ -349,9 +372,9 @@ test "for each form, the fiber runs one time for each switch to it, and both loo
     // A batch of 1,000 takes many steps of the clock, also for the loop of the empty function.
     const small: measure.Plan = .{ .warmup = 2, .samples = 4, .batch = 1000 };
     const outcomes = run_each_form(small, &values);
-    try testing.expectEqual(std.builtin.CallModifier.auto, outcomes.plain.modifier);
-    try testing.expectEqual(std.builtin.CallModifier.never_inline, outcomes.out_of_line.modifier);
-    for ([_]Outcome{ outcomes.plain, outcomes.out_of_line }) |outcome| {
+    try testing.expectEqual(switching.call_modifier, outcomes.package.modifier);
+    try testing.expect(outcomes.other.modifier != outcomes.package.modifier);
+    for ([_]Outcome{ outcomes.package, outcomes.other }) |outcome| {
         try testing.expectEqual(@as(u64, 6000), outcome.switches);
         try testing.expectEqual(@as(u64, 6000), outcome.returns);
         try testing.expect(outcome.measured());
@@ -366,7 +389,7 @@ fn summary_of(median_ns: f64) measure.Summary {
 
 fn outcome_of(first_ns: f64, second_ns: f64, returns: u64) Outcome {
     return .{
-        .modifier = .auto,
+        .modifier = .always_inline,
         .pair = .{
             .first = summary_of(first_ns),
             .second = summary_of(second_ns),
@@ -384,9 +407,9 @@ test "a run measured nothing when the fiber missed a switch, or a median is unde
     try testing.expect(!outcome_of(1.5, 0.1, 600).measured());
     const good = outcome_of(1.5, 5, 600);
     const bad = outcome_of(1.5, 5, 599);
-    try testing.expect((Outcomes{ .plain = good, .out_of_line = good }).measured());
-    try testing.expect(!(Outcomes{ .plain = bad, .out_of_line = good }).measured());
-    try testing.expect(!(Outcomes{ .plain = good, .out_of_line = bad }).measured());
+    try testing.expect((Outcomes{ .package = good, .other = good }).measured());
+    try testing.expect(!(Outcomes{ .package = bad, .other = good }).measured());
+    try testing.expect(!(Outcomes{ .package = good, .other = bad }).measured());
 }
 
 fn contains(text: []const u8, part: []const u8) bool {
@@ -397,18 +420,20 @@ test "the numbers print as a table of three rows for each form" {
     const small: measure.Plan = .{ .warmup = 2, .samples = 4, .batch = 100 };
     var buffer: [report_bytes_max]u8 = undefined;
     var writer: Writer = .fixed(&buffer);
-    const outcomes: Outcomes = .{
-        .plain = outcome_of(1.5, 12.25, 600),
-        .out_of_line = outcome_of(2, 250, 600),
+    var outcomes: Outcomes = .{
+        .package = outcome_of(1.5, 12.25, 600),
+        .other = outcome_of(2, 250, 600),
     };
+    outcomes.other.modifier = .never_inline;
     try print_numbers(&writer, small, &outcomes);
     const table = writer.buffered();
     try testing.expect(!contains(table, "FAILED"));
-    try testing.expect(contains(table, "| one switch to a fiber and one switch back, as the" ++
-        " compiler builds the call | 12.3 | 24.5 | 6.13 |\n| one call of an empty function," ++
-        " beside those switches | 1.50 | 3.00 | 0.75 |\n| those switches less that call, for" ++
-        " each sample | 10.8 | 21.5 | 5.38 |\n"));
-    try testing.expect(contains(table, "with `switch_context` never inlined | 250 | 500 | 125 |"));
+    try testing.expect(contains(table, "| one switch to a fiber and one switch back, with a" ++
+        " copy of `switch_context` in the caller (the form of the package) | 12.3 | 24.5 | 6.13" ++
+        " |\n| one call of an empty function, beside those switches | 1.50 | 3.00 | 0.75 |\n|" ++
+        " those switches less that call, for each sample | 10.8 | 21.5 | 5.38 |\n"));
+    try testing.expect(contains(table, "with a call of `switch_context` (the other form) | 250 |" ++
+        " 500 | 125 |"));
     try testing.expect(contains(table, "a batch of 100 operations"));
 }
 
@@ -417,23 +442,23 @@ test "a form that measured nothing prints FAILED in its row, and under the table
     var buffer: [report_bytes_max]u8 = undefined;
     var writer: Writer = .fixed(&buffer);
     var outcomes: Outcomes = .{
-        .plain = outcome_of(1.5, 12.25, 599),
-        .out_of_line = outcome_of(2, 250, 600),
+        .package = outcome_of(1.5, 12.25, 599),
+        .other = outcome_of(2, 250, 600),
     };
     try print_numbers(&writer, small, &outcomes);
     try testing.expect(contains(
         writer.buffered(),
-        "builds the call | FAILED: the fiber ran 599 times for 600 switches | | |\n",
+        "(the form of the package) | FAILED: the fiber ran 599 times for 600 switches | | |\n",
     ));
     try testing.expect(contains(writer.buffered(), "\nFAILED: the probe measured nothing"));
 
     writer = .fixed(&buffer);
-    outcomes.plain = outcome_of(1.5, 12.25, 600);
-    outcomes.out_of_line = outcome_of(0.1, 250, 600);
+    outcomes.package = outcome_of(1.5, 12.25, 600);
+    outcomes.other = outcome_of(0.1, 250, 600);
     try print_numbers(&writer, small, &outcomes);
     try testing.expect(contains(
         writer.buffered(),
-        "never inlined | FAILED: a median below is under one processor cycle | | |\n",
+        "(the other form) | FAILED: a median below is under one processor cycle | | |\n",
     ));
     try testing.expect(contains(writer.buffered(), "\nFAILED: the probe measured nothing"));
 }

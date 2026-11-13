@@ -20,17 +20,21 @@ So they have no row.
 
 | id | file and function | technique | why plain Zig cannot do it | what checks it | date |
 |---|---|---|---|---|---|
-| L1 | `src/switch.zig`, `switch_context` | inline assembly, with a clobber list of each register that it does not save | no statement of Zig changes the stack pointer and jumps to code on another stack | the tests of `src/switch_test.zig` and `src/switch_test_registers.zig`, in Debug and in ReleaseSafe. The Linux gate runs them for x86-64, where the fourth change shows | 2026-11-12 |
+| L1 | `src/switch.zig`, `switch_context` | inline assembly, with a clobber list of each register that it does not save | no statement of Zig changes the stack pointer and jumps to code on another stack | the tests of `src/switch_test.zig`, `src/switch_test_registers.zig` and `src/switch_test_floats.zig`, in Debug and in ReleaseSafe. The Linux gate runs them for aarch64 and for x86-64 | 2026-11-12 |
+| L3 | `src/switch.zig`, `call_modifier` | a forced inline on aarch64: each caller copies the body of `switch_context`, with `@call(.always_inline, ...)` | plain Zig leaves the choice to the compiler. A call takes the proof from the aarch64 list (record 3) | the tests call the switch in this form, and the mutations of the aarch64 list are CAUGHT in ReleaseSafe | 2026-11-13 |
 | L2 | `src/switch.zig`, `Entry(main).entry` | a naked function in assembly | a new fiber has no caller, so its first instructions load the argument from the stack and jump to `main` | the test "a new fiber starts with its argument, on an aligned stack that ends at the stack's end" | 2026-11-12 |
 
-A row of rotor's ledger holds a count before the technique and a count after it. These two rows
+A row of rotor's ledger holds a count before the technique and a count after it. Rows L1 and L2
 hold none, because no plain version exists to compare with. The probe of `bench/switch_probe.zig`
-measures L1, and `bench/results/` holds its runs.
+measures L1, and `bench/results/` holds its runs. For L3 the probe gives both forms: the copy, and
+a call that is never inlined. No quiet machine has run it.
 
-The assembly of L1 is std 0.16.0's `fiber.contextSwitch`, with four changes to its clobber lists.
+The assembly of L1 is std 0.16.0's `fiber.contextSwitch`, with five changes to its clobber lists.
 The header of `src/switch.zig` gives each change and its reason. rotor's decision 22 found the
 first three. Record 2 of `docs/decisions/` holds the fourth, which names the `xmm` registers of
-x86-64. A Zig upgrade compares std's file with that copy (rotor's decision 34, "Upkeep").
+x86-64. Record 3 holds the fifth, which names `nzcv` on aarch64. A Zig upgrade compares std's file
+with that copy (rotor's decision 34, "Upkeep").
 
-Two errors of the lists of L1 are known, and they are not corrected: the condition flags of
-aarch64, and the x87 registers of x86-64. `CLAUDE.md`, "Where the work stands", holds both.
+On x86-64 the package calls L1, and the compiler never inlines the call (record 3). The calling
+convention then covers the registers that the clobber type of Zig 0.16.0 cannot name, such as the
+x87 registers.

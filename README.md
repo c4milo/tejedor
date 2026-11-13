@@ -13,9 +13,9 @@ memory for the fibers and their stacks.
 Nothing is released, and the package has no public API yet. The design is accepted. The build
 order has seven steps, 0 to 6. Step 0 is built: the context switch of a fiber, its tests, and a
 probe that measures the switch. Its first numbers are in [bench/results](bench/results). They are
-from a busy machine, so they are not final. Step 1 waits for a review of them. It also waits for a
-ruling on two known errors of the switch, which [CLAUDE.md](CLAUDE.md) lists under "Where the work
-stands".
+from a busy machine, so they are not final. Step 1 waits for a review of them. Camilo ruled on the
+known errors of the switch on 2026-11-13, and [CLAUDE.md](CLAUDE.md) says where each ruling is,
+under "Where the work stands".
 
 ## What it needs
 

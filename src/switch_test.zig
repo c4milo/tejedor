@@ -5,7 +5,14 @@
 //! A fiber here records what it sees in a `var` of this file, and the test checks that `var` on
 //! the main context. So no fiber calls `std.testing`, which can need more stack than a fiber has.
 //!
-//! `switch_test_registers.zig` holds the test of the callee-saved registers.
+//! Each fiber and each test calls the switch in the form of the package, through
+//! `switch_in_form`. On aarch64 that form is a copy of the body of `switch_context` in the caller.
+//! So a caller can keep a value in a register across the switch, and a test can see a register
+//! that the clobber list misses. On x86_64 that form is a call. The test of the message register
+//! calls the function itself.
+//!
+//! `switch_test_registers.zig` holds the test of the callee-saved registers, and
+//! `switch_test_floats.zig` holds the test of each floating-point register.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -18,6 +25,11 @@ const supported = switching.supported;
 const switch_context = switching.switch_context;
 
 const testing = std.testing;
+
+/// Switches with `message`, in the form of the package: `@call` with `call_modifier`.
+inline fn switch_in_form(message: *const Switch) void {
+    @call(switching.call_modifier, switch_context, .{message});
+}
 
 /// Clears the register that the switch takes its message in, `x1` or `rsi`. Then it jumps to the
 /// switch with the message in the first argument register. A switch that reads the message
@@ -140,7 +152,7 @@ fn first_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment
     seen_frame = @frameAddress();
     const frame: *const usize = @ptrFromInt(seen_frame);
     seen_caller_frame = frame.*;
-    switch_context(&to_main);
+    switch_in_form(&to_main);
     unreachable;
 }
 
@@ -178,7 +190,7 @@ test "a new fiber starts with its argument, on an aligned stack that ends at the
     seen_caller_frame = 1;
     seen_frame = 0;
     start_fiber(stack_end, argument, first_fiber);
-    switch_context(&to_fiber);
+    switch_in_form(&to_fiber);
 
     try testing.expectEqual(argument, seen_argument);
     // The compiler keeps the alignment that the function had at its entry. So an aligned stack
@@ -202,7 +214,7 @@ fn counting_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignm
     const count: *usize = @ptrFromInt(argument);
     for (0..switches_in_a_row) |_| {
         count.* += 1;
-        switch_context(&to_main);
+        switch_in_form(&to_main);
     }
     unreachable;
 }
@@ -214,7 +226,7 @@ test "a fiber runs one time for each of many switches in a row" {
     // `sum` lives across each switch on the main context, as `count` does on the fiber.
     var sum: usize = 0;
     for (1..switches_in_a_row + 1) |round| {
-        switch_context(&to_fiber);
+        switch_in_form(&to_fiber);
         try testing.expectEqual(round, count);
         sum += count;
     }
@@ -240,7 +252,7 @@ fn replying_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignm
     for (0..mail_rounds) |round| {
         sum += mail.to_fiber;
         mail.to_main = sum + round;
-        switch_context(&to_main);
+        switch_in_form(&to_main);
     }
     unreachable;
 }
@@ -253,7 +265,7 @@ test "a value passes each way across a switch, and a fiber keeps its locals" {
     for (0..mail_rounds) |round| {
         const value = 3 * round + 7;
         mail.to_fiber = value;
-        switch_context(&to_fiber);
+        switch_in_form(&to_fiber);
         sum += value;
         try testing.expectEqual(sum + round, mail.to_main);
     }
@@ -268,7 +280,7 @@ fn halving_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignme
     for (0..mail_rounds) |_| {
         half_sum += @as(f64, @floatFromInt(mail.to_fiber)) / 2;
         mail.half_to_main = half_sum;
-        switch_context(&to_main);
+        switch_in_form(&to_main);
     }
     unreachable;
 }
@@ -281,25 +293,12 @@ test "the main context and a fiber each keep a floating-point value across a swi
     for (0..mail_rounds) |round| {
         const value = 3 * round + 7;
         mail.to_fiber = value;
-        switch_context(&to_fiber);
+        switch_in_form(&to_fiber);
         half_sum += @as(f64, @floatFromInt(value)) / 2;
         // Half of an integer is exact in an `f64`, so the two sums are equal bit for bit.
         try testing.expectEqual(half_sum, mail.half_to_main);
     }
 }
-
-/// True where the clobber list of the switch covers the condition flags.
-///
-/// The assembly of the switch changes no flag, and the context that runs in between does. On
-/// x86_64 the compiler takes each block of assembly as a change of the flags. On aarch64 the list
-/// must name `nzcv`, and std's list does not. So the optimized build keeps the flags of a
-/// comparison across the switch. On 2026-11-12 the test below failed for that reason in
-/// ReleaseSafe, on aarch64 macOS and on aarch64 Linux. It passed with `nzcv` in the list.
-///
-/// That is a fifth error of the clobber lists. Camilo ruled on the fourth (record 2 of
-/// `docs/decisions/`), and a fifth correction needs his word too. Until then the test does not
-/// run where the error shows. The test runner reports it as a test that it did not run.
-const flags_covered = builtin.cpu.arch != .aarch64;
 
 /// What the test of the condition flags keeps on each side of a switch. The test reads and
 /// writes each field through a volatile pointer, so the compiler keeps the order of the reads
@@ -332,7 +331,7 @@ fn flags_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment
         const high_before = mail.high;
         const less = left < right;
         mail.fiber_before = if (less) low_before else high_before;
-        switch_context(&to_main);
+        switch_in_form(&to_main);
         const low = mail.low;
         const high = mail.high;
         mail.fiber_after = if (less) low else high;
@@ -343,6 +342,11 @@ fn flags_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment
 /// One round of the main context. It compares its two values. It uses the result one time before
 /// the switch and one time after it. The comparison, the switch and both uses are in this one
 /// function, so the compiler can keep the flags of the comparison across the switch.
+///
+/// The assembly of the switch changes no flag, and the context that runs in between does. On
+/// x86_64 the compiler takes each block of assembly as a change of the flags. On aarch64 the list
+/// must name `nzcv` (record 3). With no `nzcv`, this test failed in ReleaseSafe on aarch64 macOS
+/// and on aarch64 Linux.
 noinline fn flags_round(mail: *volatile FlagsMail) void {
     const left = mail.left;
     const right = mail.right;
@@ -350,7 +354,7 @@ noinline fn flags_round(mail: *volatile FlagsMail) void {
     const high_before = mail.high;
     const less = left < right;
     mail.before = if (less) low_before else high_before;
-    switch_context(&to_fiber);
+    switch_in_form(&to_fiber);
     const low = mail.low;
     const high = mail.high;
     mail.after = if (less) low else high;
@@ -358,7 +362,6 @@ noinline fn flags_round(mail: *volatile FlagsMail) void {
 
 test "a comparison before a switch decides the same way after the switch" {
     if (!supported) return error.SkipZigTest;
-    if (!flags_covered) return error.SkipZigTest;
     var storage: FlagsMail = .{};
     const mail: *volatile FlagsMail = &storage;
     start_fiber(end_of(&stack), @intFromPtr(mail), flags_fiber);
@@ -382,18 +385,12 @@ test "a comparison before a switch decides the same way after the switch" {
     }
 }
 
-/// True where the clobber list of the switch covers the registers that hold an `f80` value.
-///
-/// On x86_64 the compiler computes an `f80` value in the x87 registers, and the list names none
-/// of them. So the optimized build keeps an `f80` value there across the switch, and the other
-/// context changes it. On 2026-11-12 the test below failed for that reason in ReleaseSafe on
-/// x86_64 Linux, under Rosetta. It still failed with `st0` to `st7` in the list.
-///
-/// That is a sixth error of the clobber lists, and no correction of the list is known. It needs
-/// Camilo's word too. Until then the test does not run where the error shows.
-const extended_covered = builtin.cpu.arch != .x86_64;
-
 /// What the main context and a fiber pass to each other in the test of an `f80` value.
+///
+/// On x86_64 the compiler computes an `f80` value in the x87 registers, and the clobber list
+/// covers none of them. With a copy of the switch in the caller, this test failed in ReleaseSafe
+/// on x86_64 Linux, under Rosetta. The switch is a call there (record 3), and the calling
+/// convention covers those registers.
 const ExtendedMail = struct {
     to_fiber: usize = 0,
     half_to_main: f80 = 0,
@@ -406,21 +403,20 @@ fn extended_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignm
     for (0..mail_rounds) |_| {
         half_sum += @as(f80, @floatFromInt(mail.to_fiber)) / 2;
         mail.half_to_main = half_sum;
-        switch_context(&to_main);
+        switch_in_form(&to_main);
     }
     unreachable;
 }
 
 test "the main context and a fiber each keep an f80 value across a switch" {
     if (!supported) return error.SkipZigTest;
-    if (!extended_covered) return error.SkipZigTest;
     var mail: ExtendedMail = .{};
     start_fiber(end_of(&stack), @intFromPtr(&mail), extended_fiber);
     var half_sum: f80 = 0;
     for (0..mail_rounds) |round| {
         const value = 3 * round + 7;
         mail.to_fiber = value;
-        switch_context(&to_fiber);
+        switch_in_form(&to_fiber);
         half_sum += @as(f80, @floatFromInt(value)) / 2;
         // Half of an integer is exact in an `f80`, so the two sums are equal bit for bit.
         try testing.expectEqual(half_sum, mail.half_to_main);
@@ -445,17 +441,17 @@ var second_to_first: Switch align(@alignOf(Switch)) = undefined;
 
 fn relay_first(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
     note(@intCast(argument));
-    switch_context(&first_to_second);
+    switch_in_form(&first_to_second);
     note(@intCast(argument));
-    switch_context(&first_to_main);
+    switch_in_form(&first_to_main);
     unreachable;
 }
 
 fn relay_second(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
     note(@intCast(argument));
-    switch_context(&second_to_main);
+    switch_in_form(&second_to_main);
     note(@intCast(argument));
-    switch_context(&second_to_first);
+    switch_in_form(&second_to_first);
     unreachable;
 }
 
@@ -473,14 +469,15 @@ test "a switch saves the context that its message names, and resumes the other, 
 
     // The main context starts the first fiber, which starts the second, which comes back here.
     note('m');
-    switch_context(&main_to_first);
+    switch_in_form(&main_to_first);
     // The second fiber resumes after its own switch, and it resumes the first after its switch.
     note('m');
-    switch_context(&main_to_second);
+    switch_in_form(&main_to_second);
     note('m');
     try testing.expectEqualStrings("mabmbam", order[0..order_len]);
 }
 
 test {
     _ = @import("switch_test_registers.zig");
+    _ = @import("switch_test_floats.zig");
 }

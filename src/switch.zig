@@ -1,5 +1,5 @@
 //! The context switch of a fiber. It is std 0.16.0's `fiber.contextSwitch`, instruction for
-//! instruction, with four changes to the clobber lists. std's own function faults in a
+//! instruction, with five changes to the clobber lists. std's own function faults in a
 //! ReleaseSafe build. rotor's decision 22 found the first three errors at its check 1:
 //!
 //! 1. The register that carries the message is not in the list. It is `x1` on aarch64, and `rsi`
@@ -10,30 +10,33 @@
 //! 3. On aarch64 Linux the list names `x18`. std leaves it out, because macOS reserves it. Linux
 //!    does not, and the optimized build kept a value in it across the switch.
 //!
-//! This package found a fourth error on 2026-11-12. Record 2 of `docs/decisions/` holds it, with
-//! Camilo's ruling:
+//! This package found two more errors on 2026-11-12, and Camilo ruled on each:
 //!
 //! 4. On x86_64 the list names `xmm0` to `xmm15` beside `zmm0` to `zmm31`. std names the `zmm`
 //!    registers alone, and a processor with no AVX-512 has none. For such a target the optimized
 //!    build kept a floating-point value in an `xmm` register across the switch, and the other
-//!    context changed it.
+//!    context changed it. Record 2 of `docs/decisions/` holds this correction.
+//! 5. On aarch64 the list names `nzcv`, the condition flags. std's list does not. The optimized
+//!    build kept the flags of a comparison across the switch, and the other context changed them.
+//!    Record 3 holds this correction.
 //!
-//! Two more errors are known, and this file does not correct them. Each needs Camilo's word.
-//! `switch_test.zig` holds a test for each, at `flags_covered` and at `extended_covered`:
+//! Record 3 also sets how a caller calls `switch_context`. `call_modifier` holds that form, and
+//! each caller passes it to `@call`:
 //!
-//! - On aarch64 the list names no `nzcv`. The optimized build kept the flags of a comparison
-//!   across the switch, and the other context changed them.
-//! - On x86_64 the list covers no x87 register. The optimized build kept an `f80` value in one
-//!   across the switch, and the other context changed it.
+//! - On aarch64 each caller holds a copy of the body of the function. So the clobber list decides
+//!   what a caller keeps across the switch, and the tests prove each name of the list.
+//! - On x86_64 each caller calls the function, and the compiler never inlines the call. The calling
+//!   convention then covers each register that the clobber type of Zig 0.16.0 cannot name. These
+//!   are the x87 registers, `k0` to `k7` of AVX-512, `r16` to `r31` of APX, and `xmm16` to
+//!   `xmm31`. With a copy of the switch, an optimized build kept a value in such a register across
+//!   the switch. The list stays as it is. No test can prove the name of a caller-saved register
+//!   there, because a caller keeps no value in such a register across a call.
 //!
 //! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
 //! this copy (rotor's decision 34, "Upkeep").
 //!
-//! `switch_context` is an ordinary function, and not `inline`. The clobber list must name each
-//! register that the switch does not save. Then a caller keeps what it needs, whether the
-//! compiler calls the function or copies its body into the caller.
-//!
-//! This file holds assembly, so `docs/hot-path-ledger.md` holds a row for each use.
+//! This file holds assembly and a forced inline, so `docs/hot-path-ledger.md` holds a row for each
+//! use.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -78,6 +81,16 @@ comptime {
         assert(@sizeOf(Switch) == 16);
     }
 }
+
+/// How each caller calls `switch_context`: the modifier that it passes to `@call` (record 3).
+///
+/// - On aarch64 it is `.always_inline`. Each caller holds a copy of the body of the function, in
+///   Debug and in ReleaseSafe.
+/// - On x86_64 it is `.never_inline`. Each caller calls the function, in Debug and in ReleaseSafe.
+pub const call_modifier: std.builtin.CallModifier = switch (builtin.cpu.arch) {
+    .x86_64 => .never_inline,
+    else => .always_inline,
+};
 
 /// The alignment of a stack's end, which System V and AAPCS64 both require.
 pub const stack_end_alignment = 16;
@@ -226,6 +239,7 @@ pub fn switch_context(message: *const Switch) callconv(.c) void {
               .fpcr = true,
               .fpsr = true,
               .ffr = true,
+              .nzcv = true,
               .memory = true,
             }),
         .x86_64 => asm volatile (

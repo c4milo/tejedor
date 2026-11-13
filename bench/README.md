@@ -25,14 +25,29 @@ quiet machine.
 - The fiber runs one function. Nothing else runs between two switches: no ready list, no tick and
   no operation. The package adds those.
 
+### The two forms
+
+The probe measures two forms of the call of `switch_context` (record 3):
+
+| form | how a caller calls the switch | the form of the package on |
+|---|---|---|
+| a copy | `@call(.always_inline, ...)`: each caller holds a copy of the body of the function | aarch64 |
+| a call | `@call(.never_inline, ...)`: each caller calls the function, which saves and restores the callee-saved registers | x86-64 |
+
+A report gives the form of the package first, and says so in its row. The other form follows it,
+to compare with. On a Mac the x86-64 build runs under an emulator, so no number of a call on
+x86-64 is in a result.
+
+The two files of `results/` came before record 3, and their rows name the forms in other words.
+"As the compiler builds the call" was a copy: the disassembly of that build showed the body of
+the switch in both loops. "With `switch_context` never inlined" was a call.
+
 ### What a number cannot show
 
 - The cost of a switch to a cold fiber. The probe switches between the same two stacks, so both
   are in the cache.
-- The cost of the switch in the package's own callers. The compiler decides for each caller if it
-  calls `switch_context` or copies its body into the caller. So the probe measures both forms: the
-  call as the compiler builds it, and a call that is never inlined. A result says which one the
-  first form got.
+- The cost of a switch in a caller of step 1. The probe switches in a loop that does nothing else,
+  so the registers that a caller keeps across the switch cost less here.
 - A slow single switch. A batch mean hides it.
 
 ### How the probe knows that it measured the switch
