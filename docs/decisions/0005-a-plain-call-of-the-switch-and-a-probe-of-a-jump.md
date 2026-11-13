@@ -58,8 +58,9 @@ Camilo ruled on 2026-11-13. The first ruling is in his words: "Call, and probe a
    set of systems, and states the rule in the doc comment of `supports` and in its test. The rule
    reads the calling convention. The choices at the end of this record list a limit that it does
    not read.
-4. **A report to Zig.** A separate agent of the session drafts it outside the tree. Camilo posts it
-   himself, and nobody of the session posts anything. The tree does not hold the report yet.
+4. **A report to Zig.** A separate agent of the session drafts it. Camilo posts it himself, and
+   nobody of the session posts anything. `docs/zig-report.md` holds the draft and says where to
+   post each issue. The issues are beside it, and their attachments are in `docs/zig-report/`.
 
 The assembly of the switch does not change.
 
@@ -427,6 +428,10 @@ of rotor.
 - **The bench tests in the Linux gate**, which the candidate needs, because its tests run on
   x86-64 alone.
 - **The three shapes of the probe**, and the test of the form of each row.
+- **The lint rule static-alignment does not read `docs/zig-report/`**, which holds the
+  attachments of the report to Zig. Those are the programs that ran, and the build compiles none.
+  The complexity score, the file-length rule and the format check do not read them either.
+  `zig fmt --check` lists three of them, and `Cases` of `std_switch.zig` scores 40.
 - **The report buffer of the probe.** `report_bytes_max` of `bench/switch_probe.zig` is 8,192
   bytes, and it was 4,096. The report of nine rows did not fit.
 

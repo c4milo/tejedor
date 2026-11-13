@@ -331,7 +331,8 @@ Ask Camilo before you do one of these:
 - Build: `zig build` compiles the unit tests. `-Drelease` builds ReleaseSafe. ReleaseFast and
   ReleaseSmall are not offered, because assertions stay on in a release build.
 - Test: `zig build test` runs the unit tests in Debug and in ReleaseSafe, then checks the format
-  of each Zig source. Every change passes it before it is committed. The tests run in both modes
+  of each Zig source but the attachments of `docs/zig-report/`. Every change passes it before it
+  is committed. The tests run in both modes
   because the faults of the context switch showed only in an optimized build (decision 34,
   "Upkeep"). It also compiles the unit tests of the package and of the bench programs for Linux on
   aarch64 and on x86-64, and runs none of them. So a change that does not compile or assemble for
@@ -382,7 +383,7 @@ Ask Camilo before you do one of these:
     of a bench program against it.
   - A number is taken on an idle machine. A run on a busy machine is no final number, and its
     file in `bench/results/` says so. `bench/README.md` names the machines.
-- Format: `zig build fmt` formats each Zig source.
+- Format: `zig build fmt` formats each Zig source but the attachments of `docs/zig-report/`.
 - Lint: `zig build lint` scores the cognitive complexity of each function over `build.zig`,
   `bench`, `build`, `src` and `tools`. Then it runs the rules of `tools/lint`: heap, determinism,
   unbounded-loop, relative-import, markdown, file-length, magic-numbers, defer-order,
@@ -405,6 +406,10 @@ Ask Camilo before you do one of these:
   - switch-form refuses a reference to `switch_other_form` under `src/`, but in `src/switch.zig`
     and in the test files (record 5). Its header lists the references that it cannot see. The
     rule is a choice of the session, and Camilo has not ruled it.
+  - static-alignment does not read `docs/zig-report/`, the attachments of the report to Zig.
+    They are the programs that ran, and the build compiles none of them. The complexity score,
+    the file-length rule and the format check do not read them either (record 5). The exemption
+    is a choice of the session, and Camilo has not ruled it.
   - A commit that adds a directory of sources adds it to the lists of `build/tools.zig`.
 - Tools: `zig build test-tools` runs the tests of the tools alone. Measure a mutation of the
   configuration of a rule against it.
@@ -466,7 +471,7 @@ round. He asked first why the switch is never inlined on x86-64, and read the se
 | The probe gets a candidate for x86-64: a switch in assembly in the style of Boost.Context, under `bench/` alone. It replaces the call only if it measures faster, and Camilo rules it | record 5, `bench/jump_switch.zig`, and its tests in `zig build test-bench` |
 | The aarch64 list does not name `ffr`, a register that LLVM reserves. A record states the departure from std's list | record 5, the list in `src/switch.zig`, and `zig build test-reserved` |
 | `supported` is false on Windows, so a `true` is never wrong. The session chose the exact set of systems | record 5, `supports` and `supported` in `src/switch.zig`, and `zig build test-windows` |
-| A report to Zig. A separate agent drafts it outside the tree, and Camilo posts it himself | not in the tree yet |
+| A report to Zig. A separate agent drafts it, and Camilo posts it himself | `docs/zig-report.md`, its three issues beside it, and `docs/zig-report/` |
 
 | step | what it holds | state |
 |---:|---|---|

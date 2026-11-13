@@ -6,8 +6,10 @@
 //! over each `.zig` file that the lint reads, the rule reports a container-level `var` of a named
 //! type that declares no `align(...)`. It asks for `align(@alignOf(T))`.
 //!
-//! No directory is exempt. The build makes the tests, the bench programs and the tools for
-//! x86-64, as it makes the package.
+//! The build makes the tests, the bench programs and the tools for x86-64, as it makes the
+//! package, so no directory of them is exempt. `docs/zig-report/` is exempt. It holds the
+//! attachments of the draft of a report to Zig: the programs that ran, which the build does not
+//! compile.
 //!
 //! The rule is pepegrillo's `static_alignment`. This file holds tejedor's configuration of it.
 
@@ -17,7 +19,10 @@ const lint = pepegrillo.lint;
 const static_alignment = lint.rules.static_alignment;
 
 pub const config: static_alignment.Config = .{
-    .scope = .{ .extensions = &.{lint.paths.zig_extension} },
+    .scope = .{
+        .extensions = &.{lint.paths.zig_extension},
+        .exclude_directories = &.{"docs/zig-report"},
+    },
 };
 
 const Rule = static_alignment.Rule(config);
@@ -46,6 +51,12 @@ test "static-alignment asks a static of a named type for its alignment in each d
     try expect_findings("tools/lint/main.zig", failing_fixture, &.{failing_message});
     try expect_findings("build/tools.zig", failing_fixture, &.{failing_message});
     try expect_findings("build.zig", failing_fixture, &.{failing_message});
+}
+
+test "static-alignment does not read the attachments of the report to Zig" {
+    try testing.expect(config.scope.applies("src/tejedor.zig"));
+    try testing.expect(config.scope.applies("docs/other.zig"));
+    try testing.expect(!config.scope.applies("docs/zig-report/fiber_switch.zig"));
 }
 
 test "static-alignment passes a static that states its alignment, and a buffer of bytes" {

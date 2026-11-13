@@ -3,9 +3,10 @@
 //!
 //! `zig build` compiles the unit tests. `zig build test` runs them twice, in Debug and in
 //! ReleaseSafe, because the faults of the context switch showed only in an optimized build
-//! (rotor's decision 34, "Upkeep"). It also checks the format of each Zig source.
-//! `zig build test-debug` and `zig build test-release` each run one mode alone, which is what a
-//! mutation is measured against. `zig build fmt` formats each Zig source.
+//! (rotor's decision 34, "Upkeep"). It also checks the format of each Zig source, but the
+//! attachments of `docs/zig-report/`. `zig build test-debug` and `zig build test-release` each run
+//! one mode alone, which is what a mutation is measured against. `zig build fmt` formats each Zig
+//! source that the test checks.
 //!
 //! Assertions stay on in a release build. So the build offers Debug and ReleaseSafe alone:
 //! `-Drelease` selects ReleaseSafe, and no option admits ReleaseFast or ReleaseSmall.
