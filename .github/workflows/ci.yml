@@ -7,8 +7,8 @@
 #     Linux on x86-64 and Linux on arm64. It runs the unit tests in Debug and in ReleaseSafe, and
 #     each other check of the local gate. The tests run in both modes because the faults of the
 #     context switch showed only in an optimized build (rotor's decision 34, "Upkeep").
-#   - `probe`: `zig build bench-switch -Drelease`, the probe of the context switch. It runs only
-#     when a person starts the workflow by hand, on Linux on x86-64.
+#   - `probe`: `zig build bench-switch -- --machine github`, the probe of the context switch. It
+#     runs only when a person starts the workflow by hand, on Linux on x86-64.
 #   - `commits`: the commit linter over the commits that a push added to main. It runs on a push
 #     only.
 #
@@ -55,9 +55,9 @@ jobs:
   # A person starts this job by hand, because it answers a question and guards no change. Camilo
   # reads the numbers of the probe before step 1 of the build order.
   #
-  # The step `bench-switch` builds the probe of the context switch and runs it. Until a commit
-  # adds that step, this job fails with Zig's message: no step named 'bench-switch'. `-Drelease`
-  # selects ReleaseSafe, the mode of a release build.
+  # The step `bench-switch` builds the probe of the context switch in ReleaseSafe, whatever the
+  # options say, and runs it. The report names its machine `github`, and the step before it prints
+  # what the runner is. A hosted runner is no quiet machine, so the report is no final number.
   probe:
     name: Linux x86-64, the probe of the switch
     runs-on: ubuntu-24.04
@@ -71,7 +71,7 @@ jobs:
           grep -m1 "model name" /proc/cpuinfo || true
           nproc; uname -r; grep -m1 MemTotal /proc/meminfo
       - name: The probe
-        run: zig build bench-switch -Drelease
+        run: zig build bench-switch -- --machine github
 
   # tejedor takes no pull requests, so this job checks the commits of a push after the push. The
   # pre-push hook checks them before the push, in a clone where a person ran `zig build hooks`.

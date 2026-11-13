@@ -24,7 +24,8 @@ So they have no row.
 | L2 | `src/switch.zig`, `Entry(main).entry` | a naked function in assembly | a new fiber has no caller, so its first instructions load the argument from the stack and jump to `main` | the test "a new fiber starts with its argument, on an aligned stack that ends at the stack's end" | 2026-11-12 |
 
 A row of rotor's ledger holds a count before the technique and a count after it. These two rows
-hold none, because no plain version exists to compare with.
+hold none, because no plain version exists to compare with. The probe of `bench/switch_probe.zig`
+measures L1, and `bench/results/` holds its runs.
 
 The assembly of L1 is std 0.16.0's `fiber.contextSwitch`, with four changes to its clobber lists.
 The header of `src/switch.zig` gives each change and its reason. rotor's decision 22 found the

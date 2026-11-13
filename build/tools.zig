@@ -24,11 +24,11 @@ const lint = @import("lint.zig");
 
 /// Each directory that the complexity score reads, beside `build.zig`. A commit that adds a
 /// directory of Zig sources adds it here.
-const source_directories = [_][]const u8{ "build", "src", "tools" };
+const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
 
 /// Each directory that the rules of tools/lint read: the sources, and the documents, which the
 /// markdown rule reads.
-const rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
+const rule_directories = [_][]const u8{ "bench", "build", "src", "tools", "docs" };
 
 /// The files at the top of the tree that the rules of tools/lint read.
 const rule_files = [_][]const u8{ "build.zig", "CLAUDE.md", "README.md" };

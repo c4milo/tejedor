@@ -21,8 +21,12 @@
 //! `zig build test-linux` builds the unit tests for Linux on aarch64 and on x86-64, in both modes,
 //! under zig-out/linux/. It runs none of them: tools/linux_test.sh runs them in Docker.
 //! `zig build test` compiles them too, and installs none (build/linux.zig).
+//!
+//! `zig build bench-switch` builds the probe of the context switch in ReleaseSafe, and runs it.
+//! `zig build test` runs the unit tests of the bench programs (build/bench.zig).
 const std = @import("std");
 const assert = std.debug.assert;
+const bench = @import("build/bench.zig");
 const linux = @import("build/linux.zig");
 const tools = @import("build/tools.zig");
 
@@ -42,7 +46,7 @@ const zig_version_source = "src/zig_version.zig";
 const root_source_file = "src/tejedor.zig";
 
 /// What `zig build fmt` formats, and what `zig build test` checks the format of.
-const format_paths = [_][]const u8{ "build.zig", "build.zig.zon", "src" };
+const format_paths = [_][]const u8{ "build.zig", "build.zig.zon", "src", "bench" };
 
 /// `zig build test` runs the unit tests once for each entry: the mode, and the word that names
 /// its own step, `test-<name>`.
@@ -92,6 +96,8 @@ pub fn build(b: *std.Build) void {
     // The same tests for Linux, which tools/linux_test.sh runs in Docker.
     const linux_steps = linux.add(b, .{ .modes = &test_modes, .test_module = test_module });
     test_step.dependOn(linux_steps.compile);
+    // The programs that measure the package.
+    bench.add(b, .{ .target = target, .test_step = test_step, .modes = &test_modes });
 
     // The check of the Zig version must stop a compile, with its message.
     test_step.dependOn(compile_fail_step(b, target));

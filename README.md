@@ -11,8 +11,11 @@ memory for the fibers and their stacks.
 ## Status
 
 Nothing is released, and the package has no public API yet. The design is accepted. The build
-order has seven steps, 0 to 6. Step 0 is in progress: the context switch of a fiber, its tests, and
-a probe that measures the switch.
+order has seven steps, 0 to 6. Step 0 is built: the context switch of a fiber, its tests, and a
+probe that measures the switch. Its first numbers are in [bench/results](bench/results). They are
+from a busy machine, so they are not final. Step 1 waits for a review of them. It also waits for a
+ruling on two known errors of the switch, which [CLAUDE.md](CLAUDE.md) lists under "Where the work
+stands".
 
 ## What it needs
 

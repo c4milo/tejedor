@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# docker_limit: the time limit on each container that tools/linux_test.sh starts, and the
-# function that holds a container to it. That script sources this file. It is never run on its
-# own.
+# docker_limit: the time limit on each container that tools/linux_test.sh and
+# tools/linux_bench.sh start, and the function that holds a container to it. Those scripts source
+# this file. It is never run on its own.
 #
 # This file is rotor's tools/docker_limit.sh at v0.11.0. Three things differ: this comment, the
 # comment of the limit, and the first word of a container's name. rotor wrote it after three test

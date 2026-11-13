@@ -138,7 +138,8 @@ with its own programs under `bench/` in the place of rotor's harness.
 ## Conventions
 
 - Zig 0.16.0. One module, `tejedor`. A dependent package gets no binary. `zig build` installs one
-  tool for the pre-push hook, the commit linter.
+  tool for the pre-push hook, the commit linter. `bench/` holds the programs that measure the
+  package.
 - Names spell words out: `stack_bytes`, not `stack_sz`. The vocabulary of std stays as std spells
   it (`futexWake`, `netRead`, `VTable`), and the vocabulary of rotor stays as rotor spells it.
   One-letter names are only for loop indices. `_bytes` and `_len` count bytes, and `_max` names a
@@ -242,7 +243,8 @@ rotor on 2026-09-22.
 
 - `build.zig` stays short: the build options, the one module and the test steps. Helpers belong in
   `build/`.
-- `build/linux.zig` builds the unit tests for Linux, for the Linux gate.
+- `build/linux.zig` builds the unit tests for Linux, for the Linux gate. `build/bench.zig` builds
+  the programs of `bench/`.
 - The lint added `build/`. `build/tools.zig` wires the developer tools, and `build/lint.zig` wires
   the lint and its canary. `build.zig.zon` lists `build` in `.paths`, because `build.zig` imports
   it.
@@ -265,6 +267,10 @@ rotor on 2026-09-22.
   (decision 34, "What it keeps"). Each use has a row there, and `src/switch.zig` is the one file
   of the library that holds such code.
 - `docs/decisions/` holds the decision records.
+- `bench/` holds each program that measures the package, and `bench/results/` holds one Markdown
+  file for each recorded run. `bench/README.md` says what each program measures, and how to record
+  a result. A bench program takes a file of the library as a module of its own, which
+  `build/bench.zig` makes. So the module `tejedor` exports no name for a probe.
 - `tools/` holds the developer tools. `zig build lint` runs them, and the build links no part of
   them into the package. The rules come from pepegrillo, a lazy package in `build.zig.zon` that
   only the root build asks for. `tools/` holds tejedor's configuration of each rule. rotor stays
@@ -272,6 +278,7 @@ rotor on 2026-09-22.
 - `.githooks/pre-push` is a copy of pepegrillo's hook. It checks the commit messages of a push.
 - `tools/linux_test.sh` runs the Linux gate in Docker. `tools/docker_limit.sh` holds the time limit
   of a container, and it is rotor's file. The lint reads the length of each shell script.
+- `tools/linux_bench.sh` runs the Linux build of the probe in Docker.
 
 ## Ask before
 
@@ -297,7 +304,8 @@ Ask Camilo before you do one of these:
   of each Zig source. Every change passes it before it is committed. The tests run in both modes
   because the faults of the context switch showed only in an optimized build (decision 34,
   "Upkeep"). It also compiles the unit tests for Linux on aarch64 and on x86-64, and runs none of
-  them. So a change that does not compile or assemble for Linux fails on a Mac.
+  them. So a change that does not compile or assemble for Linux fails on a Mac. It runs the unit
+  tests of the bench programs in both modes, and it compiles the probe for the host and for Linux.
 - One mode alone: `zig build test-debug` and `zig build test-release`.
 - Compile-fail check: `zig build test-compile-fail` builds the program of `tools/compile_fail/`.
   Its compile must fail with the message of the check of the Zig version. `zig build test` runs
@@ -320,9 +328,17 @@ Ask Camilo before you do one of these:
   - `zig build test` does not run the gate, because it needs Docker.
   - The tests of step 0 enter no io_uring. Step 1 adds the runs with io_uring and with epoll
     (decision 34, "Upkeep").
+- Probe of the context switch: `zig build bench-switch -- --machine <name>` builds the probe in
+  ReleaseSafe and runs it on this host. The report is Markdown on standard output.
+  - `zig build bench-linux && bash tools/linux_bench.sh --machine orbstack` runs the Linux build
+    in Docker. The script prints the load of the host too, because a container does not see it.
+  - `zig build test-bench` runs the unit tests of the bench programs alone. Measure a mutation
+    of a bench program against it.
+  - A number is taken on an idle machine. A run on a busy machine is no final number, and its
+    file in `bench/results/` says so. `bench/README.md` names the machines.
 - Format: `zig build fmt` formats each Zig source.
 - Lint: `zig build lint` scores the cognitive complexity of each function over `build.zig`,
-  `build`, `src` and `tools`. Then it runs the rules of `tools/lint`: heap, determinism,
+  `bench`, `build`, `src` and `tools`. Then it runs the rules of `tools/lint`: heap, determinism,
   unbounded-loop, relative-import, markdown, file-length, magic-numbers, defer-order,
   unreleased-acquire, static-alignment, global-state and undefined-fill. A canary tree in
   `build/lint.zig` proves that each rule runs. `zig build test` runs the lint too, with the tests
@@ -357,8 +373,8 @@ Ask Camilo before you do one of these:
   - The job `test` runs `zig build test` on three kinds of GitHub-hosted runner: macOS on Apple
     silicon, Linux on x86-64 and Linux on arm64.
   - The job `probe` runs only on a start by hand, on Linux on x86-64. It runs
-    `zig build bench-switch -Drelease`, the probe of the context switch, and it prints what its
-    runner is. It fails until a commit adds the step `bench-switch`.
+    `zig build bench-switch -- --machine github`, the probe of the context switch, and it prints
+    what its runner is. No run of it exists yet.
   - The job `commits` runs on a push only. It checks the commit messages that the push added to
     `main`, with the linter of `tools/commit_lint.zig`. `zig build lint-commits` checks
     `origin/main..HEAD`, which holds no commit after a push, so the job gives the linter the range
@@ -385,7 +401,7 @@ Camilo ruled on the package on 2026-11-12. The session asked each question with 
 
 | step | what it holds | state |
 |---:|---|---|
-| 0 | the context switch of a fiber, its tests and its probe | in progress |
+| 0 | the context switch of a fiber, its tests and its probe | built on 2026-11-12. Camilo has not read the numbers, and two errors of the clobber lists wait for his word |
 | 1 | contexts, std tasks, `Io.Group`s, cancel, futexes, `now`, `sleep` and the `netLookup` wrapper, on one thread | not started |
 | 2 | the wake from another thread | not started |
 | 3 | the calls of the package's own: `perform` and `call` | not started |
@@ -426,5 +442,21 @@ error, a fiber of step 1 can lose the value at each call that blocks.
 
 With a `noinline` `switch_context` and no change of a list, both tests passed in ReleaseSafe on
 the three platforms. That is a change of the design, and it is Camilo's choice too.
+
+Step 0's check names three platforms. This is what ran on 2026-11-12:
+
+| platform | where the tests ran | modes |
+|---|---|---|
+| aarch64 macOS | `mac`, with `zig build test` | Debug and ReleaseSafe |
+| aarch64 Linux | Docker on `mac`, with the Linux gate | Debug and ReleaseSafe |
+| x86-64 Linux | Docker on `mac`, with the Linux gate, under Rosetta | Debug and ReleaseSafe |
+
+No real x86-64 processor has run the tests. CI runs them on one, and no push has started the CI.
+
+The probe is built, and `bench/results/` holds two files, for `mac` and for `orbstack`. Each
+holds four runs. Each run was on a busy machine, so none is a final number. The probe has not
+run on a quiet `mac` or on a GitHub runner. It measures the switch in two forms: as the compiler
+builds the call, and with `switch_context` never inlined. The second form is what a `noinline`
+switch costs.
 
 The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.
