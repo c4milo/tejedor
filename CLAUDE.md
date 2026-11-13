@@ -413,6 +413,7 @@ measured failures and the busy numbers of the probe first:
 | what Camilo ruled on 2026-11-13 | where it shows |
 |---|---|
 | On aarch64 the list names `nzcv`, and each caller holds a copy of the switch. On x86-64 each caller calls the switch, and the compiler never inlines the call | record 3, and `call_modifier` in `src/switch.zig` |
+| The switch saves no control register. The rounding mode and the exception masks belong to the thread, and a fiber that changes them restores them before it blocks | record 3, and the header of `src/switch.zig` |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -451,6 +452,11 @@ tests prove each name of the aarch64 list. On x86-64 each caller calls `switch_c
 compiler never inlines the call. The calling convention then covers the x87 registers, `k0` to
 `k7`, `r16` to `r31` and `xmm16` to `xmm31`. The clobber type of Zig 0.16.0 cannot cover them.
 Each test of the switch runs on each platform.
+
+**The control registers belong to the thread, by Camilo's ruling of 2026-11-13 (record 3).** The
+switch saves no FPCR on aarch64, and no MXCSR or x87 control word on x86-64. So the rounding mode
+and the exception masks are those of the thread. A fiber that changes them restores them before
+it blocks. Zig code does not change them, and assembly or C code can.
 
 Step 0's check names three platforms. This is what ran on 2026-11-13:
 

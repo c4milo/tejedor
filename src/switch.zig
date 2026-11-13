@@ -32,6 +32,10 @@
 //!   the switch. The list stays as it is. No test can prove the name of a caller-saved register
 //!   there, because a caller keeps no value in such a register across a call.
 //!
+//! The switch saves no control register: not FPCR on aarch64, and not MXCSR or the x87 control
+//! word on x86_64. So the rounding mode and the exception masks belong to the thread, and not to
+//! a fiber. A fiber that changes them restores them before it blocks (record 3).
+//!
 //! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
 //! this copy (rotor's decision 34, "Upkeep").
 //!

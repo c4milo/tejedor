@@ -1,8 +1,8 @@
 # 3. The switch is a copy on aarch64 and a call on x86-64
 
-Status: **accepted**. Camilo ruled on 2026-11-13. The session wrote this record the same day, with
-the change. The rulings are Camilo's. The reasons against each alternative below are the session's,
-and Camilo has not read them.
+Status: **accepted**. Camilo ruled on 2026-11-13, on the form of the call and on the control
+registers. The session wrote this record the same day, with the change. The rulings are Camilo's.
+The reasons against each alternative below are the session's, and Camilo has not read them.
 
 ## The decision
 
@@ -14,6 +14,8 @@ and Camilo has not read them.
    `call_modifier` is `.never_inline`. The calling convention then covers each register that the
    clobber type of Zig 0.16.0 cannot name. The x86-64 list stays as it is, with the `xmm` names
    of record 2.
+3. **The rounding mode and the exception masks belong to the thread.** The switch saves no
+   control register. A fiber that changes one restores it before it blocks.
 
 The assembly of the switch does not change.
 
@@ -163,6 +165,48 @@ How to read the table:
   form of the package.
 - On x86-64 the test of an `f80` value catches a copy in place of the call.
 - Each NOT CAUGHT of a caller-saved name on x86-64 is expected, as the part above says.
+
+## The control registers
+
+Camilo ruled on 2026-11-13 that the rounding mode and the exception masks belong to the thread.
+The switch saves no control register:
+
+| architecture | register | what it controls |
+|---|---|---|
+| aarch64 | FPCR | the rounding mode, and the traps of the floating-point exceptions |
+| x86-64 | MXCSR | the rounding mode and the exception masks of SSE |
+| x86-64 | the x87 control word | the rounding mode, the precision and the exception masks of the x87 unit |
+
+std's switch saves none of them, and std's `Context` has no field for one. The names `fpcr`,
+`fpsr` and `mxcsr` in the clobber lists tell the compiler that the registers change. They save
+nothing.
+
+A trial of the session ran on 2026-11-13 against the switch of this record. A fiber set the
+rounding mode to "toward zero" and switched back. The main context then read the register:
+
+| register | platform | modes | before the switch | after the switch back |
+|---|---|---|---|---|
+| FPCR | aarch64 macOS on `mac` | Debug and ReleaseSafe | `0x00000000` | `0x00c00000`, "toward zero" |
+| FPCR | aarch64 Linux in Docker | Debug and ReleaseSafe | `0x00000000` | `0x00c00000`, "toward zero" |
+| MXCSR | x86-64 Linux in Docker, under Rosetta | Debug and ReleaseSafe | `0x1f80` | `0x7f80`, "toward zero" |
+| the x87 control word | x86-64 Linux in Docker, under Rosetta | Debug and ReleaseSafe | `0x037f` | `0x0f7f`, "toward zero" |
+
+So a fiber that changes a rounding mode changes it for each other fiber of the thread. It changes
+it for the callbacks of the reactor too, until it restores it. A fiber that changes one restores
+it before it blocks. Zig code does not change these registers. Assembly does, and C code does
+with `fesetround` or `feenableexcept`.
+
+The System V ABI of x86-64 makes the control bits of MXCSR and the x87 control word callee-saved.
+AAPCS64 asks the same of the rounding mode of FPCR. Both are recalled from the ABI texts, and
+the session did not read them on 2026-11-13. So a call of the switch can return with control bits
+other than the caller had. The ruling accepts that.
+
+Two alternatives lost:
+
+1. **Save the control registers in the switch.** That adds a field to std's `Context`, and more
+   instructions to each switch. No probe measured that cost.
+2. **Save them in the package, around each call that blocks.** That costs the same, and the
+   package changes none of them itself.
 
 ## Upkeep
 
