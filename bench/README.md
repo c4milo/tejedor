@@ -24,6 +24,8 @@ quiet machine.
   p99 of batch means, and not of single switches.
 - The fiber runs one function. Nothing else runs between two switches: no ready list, no tick and
   no operation. The package adds those.
+- Each form of the switch runs in three shapes, and each one is a row. The report has three lines
+  for each row: the switches, the empty function, and the first less the second.
 
 ### The two forms
 
@@ -31,19 +33,39 @@ The probe measures two forms of the switch (record 3):
 
 | form | what a caller holds | the form of the package on |
 |---|---|---|
-| a copy | a copy of `switch_body`, the assembly of the switch | aarch64 |
+| a copy | a copy of the switch | aarch64 |
 | a call | a call of a function that holds the switch, and that saves and restores the callee-saved registers | x86-64 |
 
 The probe gets the form of the package with a plain call of `switch_context`, as the package does.
 It gets the other form with a plain call of `switch_other_form`: a call on aarch64, and a copy on
 x86-64 (record 5).
 
+### The three shapes
+
+Each form runs in three shapes (record 5):
+
+| shape | where the switch is |
+|---|---|
+| in the loop | in the loop that the probe times, and in the loop of the fiber |
+| in one function that both sides call | in one function that is never inlined, and that returns after the switch |
+| in a function of each side | in a function of the main context and another of the fiber. Each is never inlined, and returns after the switch |
+
+A caller of step 1 switches in a function, and then returns. A processor predicts a return from a
+stack of the return addresses of the calls that it saw. After a switch, a return can go to an
+address that the other side pushed, and the processor then predicts it wrong. Record 5 gives the
+count of such returns for each form and shape. An empty block of assembly after the switch keeps a
+call of the switch a call, and not a jump at the end of the function. The function of the fiber
+holds one `nop` more than the function of the main context, so an optimized build cannot merge
+the two.
+
 A report gives the form of the package first, and says so in its row. The other form follows it,
 to compare with. On a Mac the x86-64 build runs under an emulator, so no number of a call on
 x86-64 is in a result. The CI ran the probe one time on a real x86-64 processor, and record 5 gives
 those numbers.
 
-The two files of `results/` came before record 3, and their rows name the forms in other words.
+The first two files of `results/`, `switch-mac-2026-11-13.md` and
+`switch-orbstack-2026-11-13.md`, came before record 3, and their rows name the forms in other
+words.
 "As the compiler builds the call" was a copy: the disassembly of that build showed the body of
 the switch in both loops. "With `switch_context` never inlined" was a call.
 
@@ -51,14 +73,21 @@ the switch in both loops. "With `switch_context` never inlined" was a call.
 
 - The cost of a switch to a cold fiber. The probe switches between the same two stacks, so both
   are in the cache.
-- The cost of a switch in a caller of step 1. The probe switches in a loop that does nothing else,
-  so the registers that a caller keeps across the switch cost less here.
+- The cost of a switch in a caller of step 1. The shapes with functions come closer to it than the
+  loop, and they still keep few registers across the switch.
 - A slow single switch. A batch mean hides it.
+- A drift of the machine during a run. The probe runs each row one time, in a fixed order: the
+  form of the package in each shape, then the other form in each shape. A drift can fall on one
+  row more than on another, so compare the forms of one run with care.
 
 ### How the probe knows that it measured the switch
 
 - The fiber counts each time that it runs. The probe fails when that count differs from the count
   of the switches to the fiber.
+- A test reads the address that each side saved at its last switch. For a call, it also reads
+  the return address of that call. These show the form and the function of each row. So a row
+  that runs another form or another function than its label fails the test. Record 5 says what
+  the test does not read.
 - The empty function reads a volatile value, and it is `noinline`. So its call stays in the loop.
 - A median under 0.15 ns is less than one cycle of a 6 GHz core. The probe then prints `FAILED`
   and exits with status 1.
@@ -109,6 +138,7 @@ A run on a busy machine is no final number. Each file of `bench/results/` says w
 |---|---|---|
 | `results/switch-mac-2026-11-13.md` | `mac` | four busy runs, at load averages of 17 to 34, and no final number |
 | `results/switch-orbstack-2026-11-13.md` | `orbstack` | four busy runs, at load averages of 28 to 42 on the host, and no final number |
+| `results/switch-mac-2026-11-13-shapes.md` | `mac` | three busy runs of the three shapes, and no final number |
 
 No run on a quiet `mac` exists yet. The one run on a GitHub runner, on 2026-11-13, is in record 5
 and in no file of `results/`.
@@ -117,7 +147,9 @@ and in no file of `results/`.
 
 | file | what it holds |
 |---|---|
-| `switch_probe.zig` | the probe of the context switch, and its report |
+| `switch_probe.zig` | the entry of the probe of the context switch, and the table of the machine |
+| `switch_probe_forms.zig` | the forms and the shapes that the probe measures, and the run of each row |
+| `switch_probe_report.zig` | the table of the numbers in the report |
 | `measure.zig` | the method that times a probe: batches, the median, the p99, and two loops back to back |
 | `machine.zig` | the machine and the load average, for the report |
 | `results/` | the reports of the runs that the steps above recorded. A file can hold several runs. Record 5 holds the one CI run |

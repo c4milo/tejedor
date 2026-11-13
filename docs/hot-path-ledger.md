@@ -17,6 +17,10 @@ The tests of the switch hold naked functions too, in `src/switch_test.zig`,
 file of the library imports them.
 So they have no row.
 
+`bench/switch_probe_forms.zig` holds three blocks of assembly and forced inlines, which keep the
+form of a shape of the probe. Its tests read a frame through a raw pointer. Only the probe and its
+tests run that code, and no file of the library imports it. So it has no row.
+
 ## The rows
 
 | id | file and function | technique | why plain Zig cannot do it | what checks it | date |

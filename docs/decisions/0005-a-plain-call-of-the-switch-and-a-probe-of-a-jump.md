@@ -324,6 +324,132 @@ Each mutation but one is CAUGHT by one step at least:
   convention in std 0.16.0, and their pointers are 32 bits. So the rule refuses them before it
   reads the convention, and the mutant does the same thing as the rule.
 
+## A prior to test: the prediction of returns
+
+This part is the session's reasoning, and no measurement. Camilo has not read it.
+
+The first probe switched in a loop that never returns. A caller of step 1 switches in a function,
+`block`, and then returns. A processor predicts a return from a stack of the return addresses of
+the calls that it saw. After a switch, a return can go to an address that the other context
+pushed. The processor then predicts that return wrong. By this model, one pair predicts these
+returns wrong:
+
+| form | in the loop | in one function that both sides call | in a function of each side |
+|---|---:|---:|---:|
+| a copy of the switch | 0 | 2 | 2 |
+| a call of the switch | 2 | 2 | 4 |
+
+- In the loop, a copy makes no call. A call of the switch returns one time on each side, to an
+  address of the other side.
+- In one function, each side returns from that function to the loop of the other side. A call of
+  the switch returns too, but both sides make that call from the same place of the function. So
+  the processor predicts that return right.
+- In a function of each side, the return from a call of the switch also goes to the function of
+  the other side. So a call makes four wrong returns there.
+
+A review of 2026-11-13 corrected the count of a call in one function from four to two. So the loop
+can make the copy look better against the call than it is in step 1.
+
+Step 1 is closest to a function of each side: a fiber blocks in `block`, and the main context
+resumes it from a function of its own. A switch from the `block` of one fiber to the `block` of
+another is closest to one function.
+
+### The three shapes
+
+The probe runs each form in three shapes (`bench/switch_probe_forms.zig`):
+
+- **In the loop**, on both sides.
+- **In one function that both sides call.** The function is never inlined. An empty block of
+  assembly after the switch keeps a call of the switch a call, and not a jump at the end of the
+  function. So the function returns after the switch in each form.
+- **In a function of each side.** The two functions are never inlined, and each returns after the
+  switch. The function of the fiber holds one `nop` more, so an optimized build cannot merge the two
+  into one.
+
+The probe runs each row one time, in a fixed order: the form of the package in each shape, then
+the other form in each shape. A drift of the machine can fall on one row more than on another.
+
+### The test of the form of a row
+
+The test of the probe reads the address that each side saved at its last switch. It finds the
+function that holds the address, among the function of the call and the functions of each row.
+For a call, that is the function of the call. The test also reads the return address of the call
+from the frame of the switch. That address must be in the function of the side. For a copy, the
+saved address must be in the function of the side. In the shape of a function of each side,
+the test also checks that the two sides have two functions.
+
+In the loop, the main context switches in the code of `measure.zig`, which has no address in the
+test. There the test checks the form alone. A call saves the address in `switch_called` that the
+fiber of the call in the loop saved too, and a copy saves another one. So a row that runs another
+form than its label fails, and so does a row that runs another function in a shape with functions.
+
+### Busy numbers of `mac`
+
+The session ran the probe three times on `mac` on 2026-11-13, with
+`zig build bench-switch -- --machine mac`. The load average was 49.76 to 77.31 over one minute, so
+these are no final numbers. `bench/results/switch-mac-2026-11-13-shapes.md` holds the three
+reports. The medians of a row moved by up to 2.7 times from run to run. So the table gives the
+least sample of each row, which other work delayed least, in ns, for the three runs:
+
+| form | in the loop | in one function that both sides call | in a function of each side |
+|---|---|---|---|
+| a copy of the switch, the form of the package on aarch64 | 4.79, 4.78, 4.79 | 28.3, 28.7, 28.3 | 28.8, 29.6, 28.8 |
+| a call of the switch | 27.6, 27.6, 27.6 | 32.2, 31.4, 31.2 | 42.5, 42.1, 41.6 |
+
+What the numbers show against the prior:
+
+- The order agrees with the counts of the model. A copy in the loop, with no wrong return, is the
+  fastest. The cells with two come next, and a call in a function of each side, with four, is the
+  slowest.
+- A call takes about 10 ns more in a function of each side than in one function, for two more
+  wrong returns. Those two cells differ by one `nop`, and by the function that each side calls.
+- A copy takes about 24 ns more in a function than in the loop. That step adds more than two wrong
+  returns. In a function the copy saves and restores the callee-saved registers at each switch,
+  as the call does, and in the loop it does not. In the ReleaseSafe probe on `mac`, a copy in one
+  function holds the same instructions as `switch_called`. Its least sample, 28.3 ns, is close to
+  the 27.6 ns of a call in the loop.
+- A call in one function takes about 4 ns more than a call in the loop, with the same count. That
+  is the cost of the call and the return of the function, which the processor predicts right.
+- So on `mac` the lead of the copy over the call is about 23 ns in the loop, about 3 ns in one
+  function, and about 13 ns in a function of each side.
+
+### The mutations of the probe
+
+The session ran each mutation on 2026-11-13, on `mac`, against `zig build test-bench`. That step
+runs the unit tests of the bench programs in Debug and in ReleaseSafe. Each cell gives Debug, then
+ReleaseSafe. C is CAUGHT, and n is NOT CAUGHT.
+
+| mutation | `zig build test-bench` |
+|---|---|
+| none | pass, pass |
+| the row of the other form runs the form of the package | C, C |
+| the rows of the form of the package run the other form | C, C |
+| in a function of each side, the fiber calls the function of the main context | C, C |
+| in a function of each side, the main context calls the function of the fiber | C, C |
+| the function of the fiber holds no `nop` | n, C |
+| in one function, each side switches in the loop | C, C |
+| the probe measures two shapes alone | C, C |
+| a function of each side prints the words of one function | C, C |
+| the fiber does not count its runs | C, C |
+| the buffer of the report is 1,024 bytes | C, C |
+| in the loop, the main context of the copy and of the call runs the other form | C, C |
+| in a function of each side, the fiber of the call calls the function of the main context | C, C |
+| in a function of each side, the main context of the call calls the function of the fiber | C, C |
+| in one function, the fiber of the copy switches in its own loop, and counts as the function does | C, C |
+| in a function of each side, the fiber of the copy switches in its own loop, and counts | C, C |
+| in one function, the fiber of the call calls the switch from its own loop, and counts | C, C |
+
+With the first test of the form, five of the last six mutations were NOT CAUGHT in both modes. A
+review of 2026-11-13 found four of them, and the session found the fifth. That test read no return
+address of a call, and only three functions of the probe. The session ran each mutation of the
+table again after the change. It also ran the four of them that change the call on x86-64 Linux
+under Rosetta, where the call is the form of the package. Each was CAUGHT in Debug and in
+ReleaseSafe there.
+
+With no `nop`, the two functions of the sides hold the same code. A ReleaseSafe build then keeps
+one copy of that code, so the two sides run one function, and the test of the form fails. A Debug
+build keeps both functions, so the test passes there. That NOT CAUGHT is expected.
+
 ## Alternatives that lost
 
 These alternatives are the session's list. The session wrote it after the ruling, and Camilo has
@@ -400,6 +526,9 @@ of rotor.
   ABIs whose pointers are 32 bits are false. `supports` is private, and only the tests of
   `src/switch.zig` call it.
 - **The step `test-windows`**, and its two compiles.
+- **`bench/switch_probe_forms.zig` is not a named file of `docs/hot-path-ledger.md`.** It holds
+  three blocks of assembly that keep the form of a shape. Its tests read a frame through a raw
+  pointer. No file of the library imports it, so the ledger exempts it, as it exempts the tests.
 
 ## Sources
 

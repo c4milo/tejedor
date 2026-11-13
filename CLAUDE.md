@@ -368,7 +368,9 @@ Ask Camilo before you do one of these:
   - The tests of step 0 enter no io_uring. Step 1 adds the runs with io_uring and with epoll
     (decision 34, "Upkeep").
 - Probe of the context switch: `zig build bench-switch -- --machine <name>` builds the probe in
-  ReleaseSafe and runs it on this host. The report is Markdown on standard output.
+  ReleaseSafe and runs it on this host. The report is Markdown on standard output. It gives each
+  form of the switch in three shapes: in the loop, in one function that both sides call, and in a
+  function of each side. Each function returns after the switch (record 5).
   - `zig build bench-linux && bash tools/linux_bench.sh --machine orbstack` runs the Linux build
     in Docker. The script prints the load of the host too, because a container does not see it.
   - `zig build test-bench` runs the unit tests of the bench programs alone. Measure a mutation
@@ -476,8 +478,8 @@ consumer.
 Camilo reads the numbers of the probe before step 1, so nothing of step 1 is built before he does.
 He reads the results of step 5 before a release.
 
-The package holds the build files, the root file with no public name, and the check of the Zig
-version.
+The package holds the build files, the root file with no public name, the check of the Zig
+version, and the lint on pepegrillo, as Camilo ruled on 2026-11-12.
 
 The context switch and its tests are built. The switch is the code that rotor's decision 22
 removed, with its three corrections of std's clobber lists. The records of the package hold each
@@ -490,24 +492,13 @@ change since then:
 | 4 | 2026-11-13 | the first context of a new fiber: its argument is above the first stack pointer, and `main` starts with a return address of zero |
 | 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it. A sixth change, which is no correction: the aarch64 list names no register that LLVM reserves, `ffr` and `x18`. `supported` is false on Windows |
 
-Step 0's check names three platforms. This is what ran on 2026-11-13:
+Step 0's check names three platforms. On 2026-11-13 each ran the tests in Debug and in
+ReleaseSafe: aarch64 macOS on `mac` with `zig build test`, and aarch64 Linux and x86-64 Linux in
+Docker on `mac` with the Linux gate, x86-64 under Rosetta. The CI ran `zig build test` at
+`ded6989` on GitHub's runners of macOS on Apple silicon, Linux on arm64 and Linux on x86-64. Each
+job passed. That run is the first run of the tests on a real x86-64 processor.
 
-| platform | where the tests ran | modes |
-|---|---|---|
-| aarch64 macOS | `mac`, with `zig build test` | Debug and ReleaseSafe |
-| aarch64 Linux | Docker on `mac`, with the Linux gate | Debug and ReleaseSafe |
-| x86-64 Linux | Docker on `mac`, with the Linux gate, under Rosetta | Debug and ReleaseSafe |
-
-On 2026-11-13 the CI ran `zig build test` at `ded6989` on GitHub's three kinds of runner: macOS on
-Apple silicon, Linux on arm64 and Linux on x86-64. Each job passed. That run is the first run of
-the tests on a real x86-64 processor.
-
-The probe is built, and `bench/results/` holds two files, for `mac` and for `orbstack`. Each
-holds four runs. Each run was on a busy machine, so none is a final number. Those runs came before
-record 3. The probe has not run on a quiet `mac`. It ran one time on a GitHub runner, an AMD EPYC
-9V74, in the CI run of 2026-11-13 at `ded6989`. Record 5 gives those numbers, and no file of
-`bench/results/` holds them. The probe gives the form of the package first, and the other form
-beside it. The two forms are a copy of the switch in the caller, and a call. `bench/README.md`
-says which row of the old runs is which form.
-
-The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.
+The probe is built. `bench/README.md` lists each file of `bench/results/`. Each run there was on a
+busy machine, so none is a final number, and no run on a quiet `mac` exists. Record 5 gives one
+CI run on an AMD EPYC 9V74 at `ded6989`. Since record 5 the probe runs each form in three shapes,
+for the prediction of returns, and record 5 gives the prior of the session.

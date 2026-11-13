@@ -1,27 +1,25 @@
 //! The probe of the context switch (rotor's decision 34, "The fiber switch has no measured
 //! cell"). It measures one switch from the main context to a fiber and one switch back, with the
-//! `switch_context` of the package. A call that blocks costs one such pair beside the operation
-//! that it waits for: a switch away from the fiber, and a switch back to it.
+//! switch of the package. A call that blocks costs one such pair beside the operation that it waits
+//! for: a switch away from the fiber, and a switch back to it.
 //!
 //! Run:  zig build bench-switch                     # builds ReleaseSafe, and runs on this host
 //!       zig build bench-switch -- --machine mac    # the report names the machine
 //!
 //! The probe is rotor's `bench/costs/probes/probes_fiber.zig` at rotor's `b2bcf60`, the row C26
-//! that went with decision 22. Three things differ:
+//! that went with decision 22. These things differ:
 //!
-//! - That probe held a copy of the switch, as an `inline` function. This probe calls the function
-//!   of the package.
+//! - That probe held a copy of the switch, as an `inline` function. This probe calls the switch of
+//!   the package.
 //! - That probe was one row of a table, where this one is a program.
-//! - This probe measures two forms of the switch. In the first, each caller holds a copy of
-//!   `switch_body`. In the second, each caller calls a function that holds it, so the second form
-//!   also holds the registers that the function saves and restores. The package uses the copy on
-//!   aarch64 and the call on x86_64 (record 3). A plain call of `switch_context` gives the form of
-//!   the package, and a plain call of `switch_other_form` gives the other form (record 5).
-//!   The report gives the form of the package first, and the other form beside it.
+//! - This probe measures each form of the switch in three shapes (`switch_probe_forms.zig`). The
+//!   forms are a copy of the switch in the caller, and a call of a function that holds it. The
+//!   shapes are a switch in the loop, a switch in one function that both sides call, and a switch
+//!   in a function of each side (record 5). The report gives the form of the package first.
 //!
-//! For each form the probe starts one fiber on a stack of its own. After that, the main context
-//! and the fiber switch to each other, and nothing else runs. So the number is the switch alone.
-//! It holds no ready list, no tick and no operation, which the package adds.
+//! For each form in each shape, the probe starts one fiber on a stack of its own. After that, the
+//! main context and the fiber switch to each other, and nothing else runs. So the number is the
+//! switch alone. It holds no ready list, no tick and no operation, which the package adds.
 //!
 //! Each sample times two loops back to back (`measure.sample_pairs`). The first loop calls a
 //! function that does nothing and is never inlined. The second loop switches to the fiber, which
@@ -32,23 +30,18 @@
 //! a volatile value, so its call stays. A median under one processor cycle also fails the probe.
 //!
 //! The report is Markdown on standard output: a table of the machine and the run, and a table of
-//! the numbers. Exit status: 0 with numbers, 1 when the probe measured nothing, 2 for a wrong
-//! argument.
+//! the numbers (`switch_probe_report.zig`). Exit status: 0 with numbers, 1 when the probe measured
+//! nothing, 2 for a wrong argument.
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
 const posix = std.posix;
 const machine = @import("machine.zig");
 const measure = @import("measure.zig");
-const switching = @import("switch");
+const probe_forms = @import("switch_probe_forms.zig");
+const probe_report = @import("switch_probe_report.zig");
 const Writer = std.Io.Writer;
 
-/// The plan of rotor's probe: about 34 million switches out and back for each form.
+/// The plan of rotor's probe: about 34 million switches out and back for each row.
 const plan: measure.Plan = .{ .warmup = 64, .samples = 2000, .batch = 16384 };
-
-/// The bytes of the fiber's stack. The fiber runs one function that keeps two words, so a small
-/// stack is enough. A static array keeps the probe free of an allocator.
-const stack_bytes = 64 * 1024;
 
 /// The bytes that the report can hold.
 const report_bytes_max = 4096;
@@ -57,157 +50,7 @@ const report_bytes_max = 4096;
 const exit_failed = 1;
 const exit_usage = 2;
 
-/// Under these many nanoseconds the report prints two decimals, or one.
-const two_decimals_under_ns = 10;
-const one_decimal_under_ns = 100;
-
-var fiber_stack: [stack_bytes]u8 align(switching.stack_end_alignment) = undefined;
 var sample_values: [3][plan.samples]f64 = undefined;
-
-/// The two contexts, and the two messages between them. A message names the context to save
-/// into, and the context to resume.
-const Switcher = struct {
-    main_context: switching.Context = undefined,
-    fiber_context: switching.Context = undefined,
-    to_fiber: switching.Switch = undefined,
-    to_main: switching.Switch = undefined,
-    /// The times that the fiber ran. The probe checks that each switch to the fiber reached it.
-    returns: u64 = 0,
-
-    /// Starts a new fiber that runs `fiber`, at the end of `fiber_stack`. A fiber that an earlier
-    /// `init` started is never resumed again, so its stack is free.
-    fn init(switcher: *Switcher, comptime fiber: switching.Main) void {
-        switcher.* = .{};
-        switcher.to_fiber = .{ .old = &switcher.main_context, .new = &switcher.fiber_context };
-        switcher.to_main = .{ .old = &switcher.fiber_context, .new = &switcher.main_context };
-        switcher.fiber_context = switching.initial_context(
-            @intFromPtr(&fiber_stack) + stack_bytes,
-            @intFromPtr(switcher),
-            fiber,
-        );
-    }
-};
-
-/// One fiber at a time: `Switcher.init` starts a new one.
-var switcher_static: Switcher align(@alignOf(Switcher)) = .{};
-
-/// The baseline: a call that does nothing, and that is never inlined. The volatile read keeps
-/// the call in the loop.
-noinline fn nothing(switcher: *Switcher) void {
-    const returns: *volatile u64 = &switcher.returns;
-    _ = returns.*;
-}
-
-/// What one run of one form gives.
-const Outcome = struct {
-    /// The form of the call of `switch_context` that the run used.
-    modifier: std.builtin.CallModifier,
-    pair: measure.PairSummary,
-    /// The times that the fiber ran, and the switches that the main context made to it.
-    returns: u64,
-    switches: u64,
-
-    /// False when the numbers describe something other than the switch.
-    fn measured(outcome: *const Outcome) bool {
-        if (outcome.returns != outcome.switches) return false;
-        if (outcome.pair.first.median_ns < measure.sanity_floor_ns) return false;
-        return outcome.pair.second.median_ns >= measure.sanity_floor_ns;
-    }
-};
-
-/// The form of the package on this architecture, as a modifier of `@call`: a copy on aarch64 and a
-/// call on x86_64 (record 3). The other form is the one that the report gives beside it.
-const package_form: std.builtin.CallModifier = switch (builtin.cpu.arch) {
-    .x86_64 => .never_inline,
-    else => .always_inline,
-};
-const other_form: std.builtin.CallModifier = switch (package_form) {
-    .always_inline => .never_inline,
-    .never_inline => .always_inline,
-    else => @compileError("the package calls the switch with a copy or with a call"),
-};
-
-/// The words of the report for a form of the call.
-fn form_text(modifier: std.builtin.CallModifier) []const u8 {
-    return switch (modifier) {
-        .always_inline => "with a copy of `switch_context` in the caller",
-        .never_inline => "with a call of `switch_context`",
-        else => "with the call as the compiler builds it",
-    };
-}
-
-/// The fiber and the two loops for one form of the switch. `.always_inline` names the copy of the
-/// switch on both sides. `.never_inline` names a call of a function that holds it, on both sides.
-fn Form(comptime modifier: std.builtin.CallModifier) type {
-    return struct {
-        /// One switch in this form. The form of the package is a plain call of `switch_context`,
-        /// as the package makes it. The other form is a plain call of `switch_other_form`.
-        inline fn switch_once(message: *const switching.Switch) void {
-            if (modifier == package_form) {
-                switching.switch_context(message);
-            } else {
-                switching.switch_other_form(message);
-            }
-        }
-
-        /// The whole life of the fiber: it switches back to the main context each time that the
-        /// main context switches to it. After the last sample the main context does not switch
-        /// to it again. So the fiber stays at its switch until the process ends, and the function
-        /// never returns.
-        fn fiber_main(
-            argument: usize,
-        ) callconv(.withStackAlign(.c, switching.stack_end_alignment)) noreturn {
-            const switcher: *Switcher = @ptrFromInt(argument);
-            while (true) {
-                switcher.returns += 1;
-                switch_once(&switcher.to_main);
-            }
-        }
-
-        const Loops = struct {
-            switcher: *Switcher,
-
-            pub fn run_first(loops: *Loops, batch: u32) void {
-                for (0..batch) |_| nothing(loops.switcher);
-            }
-
-            pub fn run_second(loops: *Loops, batch: u32) void {
-                for (0..batch) |_| switch_once(&loops.switcher.to_fiber);
-            }
-        };
-
-        fn run(run_plan: measure.Plan, values: *const [3][]f64) Outcome {
-            const switcher = &switcher_static;
-            switcher.init(fiber_main);
-            var loops: Loops = .{ .switcher = switcher };
-            const pair = measure.sample_pairs(Loops, &loops, run_plan, values);
-            return .{
-                .modifier = modifier,
-                .pair = pair,
-                .returns = switcher.returns,
-                .switches = run_plan.operations(),
-            };
-        }
-    };
-}
-
-/// The outcome of each form.
-const Outcomes = struct {
-    /// The form of the package.
-    package: Outcome,
-    /// The other form.
-    other: Outcome,
-
-    fn measured(outcomes: *const Outcomes) bool {
-        return outcomes.package.measured() and outcomes.other.measured();
-    }
-};
-
-fn run_each_form(run_plan: measure.Plan, values: *const [3][]f64) Outcomes {
-    const package = Form(package_form).run(run_plan, values);
-    const other = Form(other_form).run(run_plan, values);
-    return .{ .package = package, .other = other };
-}
 
 /// What the report says about the run, beside the numbers.
 const Facts = struct {
@@ -254,7 +97,7 @@ pub fn main(init: std.process.Init.Minimal) void {
         .clock_resolution_ns = measure.clock_resolution_ns(),
     };
     const values: [3][]f64 = .{ &sample_values[0], &sample_values[1], &sample_values[2] };
-    const outcomes = run_each_form(plan, &values);
+    const outcomes = probe_forms.run_each(plan, &values);
 
     var report_buffer: [report_bytes_max]u8 = undefined;
     var writer: Writer = .fixed(&report_buffer);
@@ -285,7 +128,7 @@ fn print_report(
     writer: *Writer,
     facts: *const Facts,
     report_plan: measure.Plan,
-    outcomes: *const Outcomes,
+    outcomes: *const probe_forms.Outcomes,
 ) Writer.Error!void {
     try writer.writeAll("# The probe of the context switch\n\n| | |\n|---|---|\n");
     try writer.print("| machine | {s} |\n", .{facts.machine_name orelse "no name was given"});
@@ -298,7 +141,7 @@ fn print_report(
     try print_loads(writer, "load average before the run", facts.loads_before);
     try print_loads(writer, "load average after the run", machine.load_averages());
     try writer.writeAll("\n");
-    try print_numbers(writer, report_plan, outcomes);
+    try probe_report.print_numbers(writer, report_plan, outcomes);
 }
 
 fn print_loads(
@@ -312,178 +155,7 @@ fn print_loads(
     });
 }
 
-fn print_numbers(
-    writer: *Writer,
-    report_plan: measure.Plan,
-    outcomes: *const Outcomes,
-) Writer.Error!void {
-    try writer.writeAll("| what one sample times | median, ns | p99, ns | least, ns |\n" ++
-        "|---|---:|---:|---:|\n");
-    try print_form(writer, "the form of the package", &outcomes.package);
-    try print_form(writer, "the other form", &outcomes.other);
-    try writer.print("\nEach sample is the time of a batch of {d} operations, divided by {d}." ++
-        " For each form, the run kept\n{d} samples, after {d} batches whose times it threw" ++
-        " away. The p99 is the p99 of batch means, and not\nof single operations.\n", .{
-        report_plan.batch,
-        report_plan.batch,
-        report_plan.samples,
-        report_plan.warmup,
-    });
-    if (!outcomes.measured()) {
-        try writer.writeAll("\nFAILED: the probe measured nothing for a row above.\n");
-    }
-}
-
-/// The three rows of one form. A form that measured nothing says why, where its numbers go.
-fn print_form(writer: *Writer, role: []const u8, outcome: *const Outcome) Writer.Error!void {
-    try writer.print("| one switch to a fiber and one switch back, {s} ({s}) | ", .{
-        form_text(outcome.modifier),
-        role,
-    });
-    if (outcome.returns != outcome.switches) {
-        return writer.print("FAILED: the fiber ran {d} times for {d} switches | | |\n", .{
-            outcome.returns,
-            outcome.switches,
-        });
-    }
-    if (!outcome.measured()) {
-        try writer.writeAll("FAILED: a median below is under one processor cycle | | |\n| the" ++
-            " same row, as it was measured | ");
-    }
-    try print_summary(writer, outcome.pair.second);
-    try writer.writeAll("| one call of an empty function, beside those switches | ");
-    try print_summary(writer, outcome.pair.first);
-    try writer.writeAll("| those switches less that call, for each sample | ");
-    try print_summary(writer, outcome.pair.difference);
-}
-
-fn print_summary(writer: *Writer, summary: measure.Summary) Writer.Error!void {
-    try print_ns(writer, summary.median_ns);
-    try writer.writeAll(" | ");
-    try print_ns(writer, summary.p99_ns);
-    try writer.writeAll(" | ");
-    try print_ns(writer, summary.least_ns);
-    try writer.writeAll(" |\n");
-}
-
-/// Nanoseconds: two decimals under 10, one under 100, and none above.
-fn print_ns(writer: *Writer, nanoseconds: f64) Writer.Error!void {
-    const magnitude = @abs(nanoseconds);
-    if (magnitude < two_decimals_under_ns) return writer.print("{d:.2}", .{nanoseconds});
-    if (magnitude < one_decimal_under_ns) return writer.print("{d:.1}", .{nanoseconds});
-    return writer.print("{d:.0}", .{nanoseconds});
-}
-
 const testing = std.testing;
-
-test "for each form, the fiber runs one time for each switch to it, and both loops take time" {
-    if (!switching.supported) return error.SkipZigTest;
-    var storage: [3][4]f64 = undefined;
-    const values: [3][]f64 = .{ &storage[0], &storage[1], &storage[2] };
-    // A batch of 1,000 takes many steps of the clock, also for the loop of the empty function.
-    const small: measure.Plan = .{ .warmup = 2, .samples = 4, .batch = 1000 };
-    const outcomes = run_each_form(small, &values);
-    try testing.expectEqual(package_form, outcomes.package.modifier);
-    try testing.expect(outcomes.other.modifier != outcomes.package.modifier);
-    for ([_]Outcome{ outcomes.package, outcomes.other }) |outcome| {
-        try testing.expectEqual(@as(u64, 6000), outcome.switches);
-        try testing.expectEqual(@as(u64, 6000), outcome.returns);
-        try testing.expect(outcome.measured());
-    }
-    // The fiber of the second form started on a new `Switcher`, so the count started at 0.
-    try testing.expectEqual(@as(u64, 6000), switcher_static.returns);
-}
-
-fn summary_of(median_ns: f64) measure.Summary {
-    return .{ .median_ns = median_ns, .p99_ns = median_ns * 2, .least_ns = median_ns / 2 };
-}
-
-fn outcome_of(first_ns: f64, second_ns: f64, returns: u64) Outcome {
-    return .{
-        .modifier = .always_inline,
-        .pair = .{
-            .first = summary_of(first_ns),
-            .second = summary_of(second_ns),
-            .difference = summary_of(second_ns - first_ns),
-        },
-        .returns = returns,
-        .switches = 600,
-    };
-}
-
-test "a run measured nothing when the fiber missed a switch, or a median is under a cycle" {
-    try testing.expect(outcome_of(1.5, 5, 600).measured());
-    try testing.expect(!outcome_of(1.5, 5, 599).measured());
-    try testing.expect(!outcome_of(0.1, 5, 600).measured());
-    try testing.expect(!outcome_of(1.5, 0.1, 600).measured());
-    const good = outcome_of(1.5, 5, 600);
-    const bad = outcome_of(1.5, 5, 599);
-    try testing.expect((Outcomes{ .package = good, .other = good }).measured());
-    try testing.expect(!(Outcomes{ .package = bad, .other = good }).measured());
-    try testing.expect(!(Outcomes{ .package = good, .other = bad }).measured());
-}
-
-fn contains(text: []const u8, part: []const u8) bool {
-    return std.mem.indexOf(u8, text, part) != null;
-}
-
-test "the numbers print as a table of three rows for each form" {
-    const small: measure.Plan = .{ .warmup = 2, .samples = 4, .batch = 100 };
-    var buffer: [report_bytes_max]u8 = undefined;
-    var writer: Writer = .fixed(&buffer);
-    var outcomes: Outcomes = .{
-        .package = outcome_of(1.5, 12.25, 600),
-        .other = outcome_of(2, 250, 600),
-    };
-    outcomes.other.modifier = .never_inline;
-    try print_numbers(&writer, small, &outcomes);
-    const table = writer.buffered();
-    try testing.expect(!contains(table, "FAILED"));
-    try testing.expect(contains(table, "| one switch to a fiber and one switch back, with a" ++
-        " copy of `switch_context` in the caller (the form of the package) | 12.3 | 24.5 | 6.13" ++
-        " |\n| one call of an empty function, beside those switches | 1.50 | 3.00 | 0.75 |\n|" ++
-        " those switches less that call, for each sample | 10.8 | 21.5 | 5.38 |\n"));
-    try testing.expect(contains(table, "with a call of `switch_context` (the other form) | 250 |" ++
-        " 500 | 125 |"));
-    try testing.expect(contains(table, "a batch of 100 operations"));
-}
-
-test "a form that measured nothing prints FAILED in its row, and under the table" {
-    const small: measure.Plan = .{ .warmup = 2, .samples = 4, .batch = 100 };
-    var buffer: [report_bytes_max]u8 = undefined;
-    var writer: Writer = .fixed(&buffer);
-    var outcomes: Outcomes = .{
-        .package = outcome_of(1.5, 12.25, 599),
-        .other = outcome_of(2, 250, 600),
-    };
-    try print_numbers(&writer, small, &outcomes);
-    try testing.expect(contains(
-        writer.buffered(),
-        "(the form of the package) | FAILED: the fiber ran 599 times for 600 switches | | |\n",
-    ));
-    try testing.expect(contains(writer.buffered(), "\nFAILED: the probe measured nothing"));
-
-    writer = .fixed(&buffer);
-    outcomes.package = outcome_of(1.5, 12.25, 600);
-    outcomes.other = outcome_of(0.1, 250, 600);
-    try print_numbers(&writer, small, &outcomes);
-    try testing.expect(contains(
-        writer.buffered(),
-        "(the other form) | FAILED: a median below is under one processor cycle | | |\n",
-    ));
-    try testing.expect(contains(writer.buffered(), "\nFAILED: the probe measured nothing"));
-}
-
-test "print_ns keeps two decimals under 10, one under 100, and none above" {
-    var buffer: [64]u8 = undefined;
-    var writer: Writer = .fixed(&buffer);
-    try print_ns(&writer, 0.934);
-    try writer.writeAll(" ");
-    try print_ns(&writer, 47.26);
-    try writer.writeAll(" ");
-    try print_ns(&writer, 12959.4);
-    try testing.expectEqualStrings("0.93 47.3 12959", writer.buffered());
-}
 
 test "parse_arguments takes the name of the machine, and refuses each other argument" {
     try testing.expectEqual(@as(?[]const u8, null), try parse_arguments(&.{}));
@@ -492,7 +164,34 @@ test "parse_arguments takes the name of the machine, and refuses each other argu
     try testing.expectError(error.UnknownArgument, parse_arguments(&.{"--row"}));
 }
 
+test "the report of each row of a run fits in report_bytes_max" {
+    var buffer: [report_bytes_max]u8 = undefined;
+    var writer: Writer = .fixed(&buffer);
+    const facts: Facts = .{
+        .machine_name = "a machine name of some length, as a person can give it",
+        .placement = .qos_user_interactive,
+        .clock_resolution_ns = 41,
+        .loads_before = .{ 99.99, 99.99, 99.99 },
+    };
+    // A median under one processor cycle gives the longest row: a line of FAILED, then the
+    // numbers.
+    const summary: measure.Summary = .{ .median_ns = 0.1, .p99_ns = 12345.6, .least_ns = 0.05 };
+    var outcomes: probe_forms.Outcomes = .{};
+    for (&outcomes.rows) |*row| row.* = .{
+        .form = .copy,
+        .shape = .two_functions,
+        .pair = .{ .first = summary, .second = summary, .difference = summary },
+        .returns = 1,
+        .switches = 1,
+    };
+    outcomes.count = outcomes.rows.len;
+    try print_report(&writer, &facts, plan, &outcomes);
+    try testing.expect(writer.buffered().len < report_bytes_max);
+}
+
 test {
     _ = machine;
     _ = measure;
+    _ = probe_forms;
+    _ = probe_report;
 }
