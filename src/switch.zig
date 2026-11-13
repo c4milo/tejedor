@@ -1,5 +1,5 @@
 //! The context switch of a fiber. It is std 0.16.0's `fiber.contextSwitch`, instruction for
-//! instruction, with five changes to the clobber lists. std's own function faults in a
+//! instruction, with six changes to the clobber lists. std's own function faults in a
 //! ReleaseSafe build. rotor's decision 22 found the first three errors at its check 1:
 //!
 //! 1. The register that carries the message is not in the list. It is `x1` on aarch64, and `rsi`
@@ -20,6 +20,18 @@
 //!    build kept the flags of a comparison across the switch, and the other context changed them.
 //!    Record 3 holds this correction.
 //!
+//! On 2026-11-13 Camilo ruled one more change, which is no correction (record 5):
+//!
+//! 6. On aarch64 the list does not name `ffr`, the first-fault register of SVE, and std's list
+//!    does. LLVM reserves `ffr`, so it never keeps a value there, and the name protects nothing.
+//!    LLVM printed a warning for each copy of the switch that named it.
+//!
+//! The session applied the same reason to `x18`, and Camilo has not ruled it (record 5). LLVM
+//! reserves `x18` on the systems of Apple, Android, OpenHarmony, Fuchsia, UEFI and Windows. It also
+//! reserves it for a processor with the feature `reserve_x18`. The list names `x18` only where
+//! LLVM does not reserve it. `zig build test-reserved` fails when the list names a register that
+//! LLVM reserves.
+//!
 //! Record 3 sets the form in which a caller gets the switch, and record 5 puts that form in
 //! `switch_context` itself. `switch_copied` holds the assembly. Each caller of the package calls
 //! `switch_context` with a plain call:
@@ -28,7 +40,7 @@
 //!   copy of the switch, in Debug and in ReleaseSafe. The clobber list then decides what a caller
 //!   keeps across the switch. A test can see a name of the list only where the compiler keeps a
 //!   value in that register. Records 3 and 5 give the mutations of the list. No test proves `p0`
-//!   to `p15`, `ffr`, `fpcr` or `fpsr`.
+//!   to `p15`, `fpcr` or `fpsr`.
 //! - On x86_64 `switch_context` is a function that is never inlined, so each caller calls it. The
 //!   calling convention then covers each caller-saved register that the list does not cover. The
 //!   clobber type of Zig 0.16.0 has no working name for the x87 registers. It has no name for `k0`
@@ -193,6 +205,17 @@ noinline fn switch_called(message: *const Switch) callconv(.c) void {
     switch_copied(message);
 }
 
+/// True where LLVM reserves `x18` of aarch64. That is on the systems of Apple, Android,
+/// OpenHarmony, Fuchsia, UEFI and Windows, and for a processor with the feature `reserve_x18`. The
+/// list names `x18` on each other target (record 5).
+const x18_reserved = switch (builtin.target.os.tag) {
+    .windows, .uefi, .fuchsia => true,
+    else => builtin.target.os.tag.isDarwin() or builtin.target.abi.isAndroid() or
+        builtin.target.abi.isOpenHarmony() or
+        (builtin.cpu.arch == .aarch64 and
+            std.Target.aarch64.featureSetHas(builtin.cpu.features, .reserve_x18)),
+};
+
 /// The assembly of the switch. Each caller holds a copy of it, because it is an inline function,
 /// and `switch_called` is one such caller. A call of it with `.never_inline` does not compile.
 inline fn switch_copied(message: *const Switch) void {
@@ -228,7 +251,7 @@ inline fn switch_copied(message: *const Switch) void {
               .x15 = true,
               .x16 = true,
               .x17 = true,
-              .x18 = !builtin.target.os.tag.isDarwin(),
+              .x18 = !x18_reserved,
               .x19 = true,
               .x20 = true,
               .x21 = true,
@@ -291,7 +314,6 @@ inline fn switch_copied(message: *const Switch) void {
               .p15 = true,
               .fpcr = true,
               .fpsr = true,
-              .ffr = true,
               .nzcv = true,
               .memory = true,
             }),

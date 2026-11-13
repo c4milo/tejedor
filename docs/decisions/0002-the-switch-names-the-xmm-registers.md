@@ -4,6 +4,10 @@ Status: **accepted**. Camilo ruled on 2026-11-12 that the package applies this c
 record was written the same day, with the correction. The ruling is Camilo's. The reasons against
 each alternative below are the session's, and Camilo has not read them.
 
+Note of 2026-11-13, second round: record 5 removes `ffr` from the aarch64 list. It also makes the
+switch a function that is never inlined on x86-64, by its declaration. The x86-64 list of this
+record does not change.
+
 ## The decision
 
 The clobber list of `switch_context` for x86-64 names `xmm0` to `xmm15`, beside the `zmm0` to
@@ -111,9 +115,10 @@ rotor's to add.
 - **`r16` to `r31` of APX.** The clobber type stops at `r15`. The CPU model `diamondrapids` has
   the feature `egpr`. For a target with that feature, the disassembly shows three values in `r16`
   to `r18` across the copy of the switch. Nothing ran.
-- **An aarch64 target with SVE.** The list names `ffr`, as std's list does. For such a target the
-  compiler prints a warning for each copy of the switch, because `ffr` is a reserved register.
-  The tests compile, and nothing ran.
+- **An aarch64 target with SVE.** The list named `ffr`, as std's list does. For such a target the
+  compiler printed a warning for each copy of the switch, because `ffr` is a reserved register.
+  The tests compiled, and nothing ran. Since record 5 the list does not name `ffr`, and
+  `zig build test-reserved` fails when the warning comes back.
 - **Two more errors of the lists.** The session measured them on the same day, with a trial test
   for each. Record 3 corrects both, by Camilo's ruling of 2026-11-13: `nzcv` in the aarch64 list,
   and a call on x86-64.
@@ -138,8 +143,9 @@ register of this part that the list does not cover.
 ## Upkeep
 
 A Zig upgrade compares std's switch with the copy of the package (rotor's decision 34, "Upkeep").
-The copy now differs from std 0.16.0 in five places, and the header of `src/switch.zig` lists
-them. Record 3 holds the fifth. If a later std names the `xmm` registers, this correction goes.
+The copy now differs from std 0.16.0 in six places, and the header of `src/switch.zig` lists
+them. Record 3 holds the fifth, and record 5 the sixth. If a later std names the `xmm` registers,
+this correction goes.
 
 ## Sources
 

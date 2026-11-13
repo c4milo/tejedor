@@ -104,6 +104,9 @@ These facts decide where a fault of a clobber list shows:
 - The test of `src/switch_test_form.zig` and two programs of `tools/compile_fail/` prove the form
   of `switch_context` (record 5). Measure a mutation of the form against the step
   `zig build test-compile-fail` too.
+- No test can see a name of a reserved register in a list, because the compiler keeps no value in
+  such a register. `zig build test-reserved` sees the warning of LLVM for `ffr` and for `x18`
+  (record 5). Measure such a mutation against it.
 - On aarch64 macOS the compiler saves the callee-saved registers in pairs. So the function still
   saves a register that the list misses, when the list holds the other register of its pair.
 - On x86-64 the names `zmm0` to `zmm31` kept no value out of an `xmm` register, for a target with
@@ -284,6 +287,8 @@ rotor on 2026-09-22.
   `src/switch_test_entry.zig` and `src/switch_test_form.zig` hold the tests of the switch. A file
   whose stem ends in `_test`, or holds `_test_`, holds tests alone.
 - `build/switch_checks.zig` holds the checks of the switch that are compiles.
+- `tools/switch_reserved.zig` holds one copy of the switch, which `zig build test-reserved` builds
+  for each aarch64 target where LLVM reserves a register (record 5).
 - `docs/hot-path-ledger.md` is the ledger of the package for ugly code, such as assembly
   (decision 34, "What it keeps"). Each use has a row there, and `src/switch.zig` is the one file
   of the library that holds such code.
@@ -334,6 +339,11 @@ Ask Camilo before you do one of these:
   and each compile must fail with its message. One program hands the check of the Zig version
   another version. Two ask for the form of the switch that the other architecture uses: a copy on
   x86-64, and a call on aarch64 (record 5). `zig build test` runs this step too.
+- Check of the reserved registers: `zig build test-reserved` builds a copy of the switch for eight
+  aarch64 targets where LLVM reserves a register. Each compile must print nothing. LLVM reserves
+  `ffr` on a processor with SVE. It reserves `x18` on the systems of Apple, Android, OpenHarmony,
+  Fuchsia, UEFI and Windows, and with the feature `reserve_x18`. The aarch64 list names neither
+  there (record 5). `zig build test` runs this step too.
 - Tests that do not run: a plain `zig build test` prints nothing for a test that it does not
   run. `zig build test --summary all` gives the count of such tests for each step, and the Linux
   gate prints a `SKIP` line for each one. Each test of the switch runs on each platform of step
@@ -442,6 +452,7 @@ round. He asked first why the switch is never inlined on x86-64, and read the se
 | what Camilo ruled on 2026-11-13, second round | where it shows |
 |---|---|
 | "Call, and probe a jump": a plain call of `switch_context` is a call on x86-64 and a copy on aarch64, and `call_modifier` goes | record 5, `switch_context` in `src/switch.zig`, `src/switch_test_form.zig` and `tools/compile_fail/` |
+| The aarch64 list does not name `ffr`, a register that LLVM reserves. A record states the departure from std's list | record 5, the list in `src/switch.zig`, and `zig build test-reserved` |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -472,7 +483,7 @@ change since then:
 | 2 | 2026-11-12 | the fourth correction: the x86-64 list names `xmm0` to `xmm15` beside std's `zmm` names. What that does not cover |
 | 3 | 2026-11-13 | the fifth correction: the aarch64 list names `nzcv`. A copy of the switch on aarch64, and a call on x86-64, where the calling convention covers what the list cannot. The control registers belong to the thread |
 | 4 | 2026-11-13 | the first context of a new fiber: its argument is above the first stack pointer, and `main` starts with a return address of zero |
-| 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it |
+| 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it. A sixth change, which is no correction: the aarch64 list names no register that LLVM reserves, `ffr` and `x18` |
 
 Step 0's check names three platforms. This is what ran on 2026-11-13:
 

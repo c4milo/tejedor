@@ -40,7 +40,7 @@ clobber type names them, and the list does not hold them. The second bullet abov
 
 ## The decision
 
-Camilo ruled on 2026-11-13: "Call, and probe a jump."
+Camilo ruled on 2026-11-13. The first ruling is in his words: "Call, and probe a jump."
 
 1. **`switch_context` itself has the form of record 3.** A plain call of it is a copy on aarch64
    and a call on x86-64. `call_modifier` goes.
@@ -51,8 +51,9 @@ Camilo ruled on 2026-11-13: "Call, and probe a jump."
    - `switch_other_form` has the form that the package does not use on an architecture: a call on
      aarch64, and a copy on x86-64. Only the tests and the probe name it. The names
      `switch_copied`, `switch_called` and `switch_other_form` are a choice of the session (below).
+2. **The aarch64 list does not name `ffr`.** A record states the departure from std's list.
 
-The assembly of the switch and the clobber lists do not change.
+The assembly of the switch does not change.
 
 ## 1. The form is in the declaration of `switch_context`
 
@@ -122,8 +123,10 @@ column is the step `zig build test-compile-fail` on `mac`.
 | `switch_context` is `switch_called` on aarch64 | C, C | - | C |
 | `switch_copied` is not `inline` | C, n | - | C |
 
-The session ran the mutations of the lists before `switch_other_form` came. The code that they
-change did not change after that run:
+The session ran the mutations of the lists before `switch_other_form` came. The aarch64 list
+changed after that run: `ffr` went, and `x18` reads `x18_reserved`. On the targets that ran these
+mutations, the list names the same registers but `ffr`. LLVM reserves `ffr`, and the name changes
+no instruction (section 2). The mutations of the lists:
 
 | mutation | aarch64 macOS | aarch64 Linux | x86-64 Linux |
 |---|---|---|---|
@@ -163,6 +166,85 @@ How to read the tables:
 - The rule reads the test files when it loses the exclusion of their stems. It then flags
   `src/switch_test.zig`, which names `switch_other_form`.
 
+## 2. The aarch64 list does not name `ffr`
+
+### The error
+
+`ffr` is the first-fault register of SVE, the scalable vector extension of aarch64. std's list
+names it, and so did the list of the package. LLVM reserves `ffr`, so its register allocator never
+keeps a value there. So the name protects nothing.
+
+For a processor with SVE, LLVM printed this warning for each copy of the switch:
+
+```text
+warning: inline asm clobber list contains reserved registers: FFR
+```
+
+GitHub's runner of Linux on arm64 has SVE. In the CI run 43383643761, the log of the job "zig
+build test, Linux arm64" holds the warning 58 times, in five compiles. The build printed the first
+warning of each compile as `error: warning:`, and the job passed. The two other test jobs of that
+run hold no such warning.
+
+A review of the session found the same fault for `x18` on 2026-11-13. The list named `x18` on
+each system but those of Apple. LLVM also reserves `x18` on Android, OpenHarmony, Fuchsia, UEFI
+and Windows, and for a processor with the feature `reserve_x18`. A compile of the switch for such
+a target printed the warning for `X18`. The list now names `x18` only where LLVM does not reserve
+it. So Linux and the BSDs keep the name, which the third correction of rotor's decision 22 needs.
+A later review of the same day found that the first fix left out OpenHarmony. The ruling names
+`ffr` alone, so the change for `x18` is a choice of the session (the end of this record).
+
+### The check
+
+`zig build test-reserved` builds `tools/switch_reserved.zig`, a copy of the switch, for eight
+aarch64 targets. The standard error of each compile must be empty:
+
+| target | processor | the register that LLVM reserves |
+|---|---|---|
+| Linux | `neoverse_n2`, which has SVE | `ffr` |
+| macOS | `baseline` | `x18` |
+| Android | `baseline` | `x18` |
+| OpenHarmony | `baseline` | `x18` |
+| Fuchsia | `baseline` | `x18` |
+| UEFI | `baseline` | `x18` |
+| Windows | `baseline` | `x18` |
+| Linux | `baseline`, with the feature `reserve_x18` | `x18` |
+
+The step runs the compiler as a command, because a compile step of the build passes a warning
+(`build/switch_checks.zig`). `zig build test` runs it.
+
+### What the compiler builds
+
+The session built the tests of the switch with `ffr` in the aarch64 list and without it, on
+2026-11-13, and compared the disassembly of `objdump -d`:
+
+| target | processor | mode | FFR warnings with `ffr` | without `ffr` | disassembly |
+|---|---|---|---:|---:|---|
+| aarch64 macOS | the M1 Pro of `mac`, no SVE | ReleaseSafe | 0 | 0 | the same |
+| aarch64 Linux | `baseline`, no SVE | ReleaseSafe | 0 | 0 | the same |
+| aarch64 Linux | `neoverse_n2`, with SVE | Debug | 24 | 0 | the same |
+| aarch64 Linux | `neoverse_n2`, with SVE | ReleaseSafe | 24 | 0 | the same |
+
+So the name changes no instruction, on a processor with SVE and on one with none. The executables
+of each pair differ in other bytes. The two trees had different paths, and the session did not
+read where the bytes differ.
+
+### The mutations
+
+The session ran each mutation on 2026-11-13, on `mac`.
+
+| mutation | `zig build test-reserved` on `mac` |
+|---|---|
+| none | pass |
+| `ffr` back in the aarch64 list | C |
+| `x18` named on each system but those of Apple, as before | C |
+| `x18` named on Windows | C |
+| `x18` named on UEFI | C |
+| `x18` named on Fuchsia | C |
+| `x18` named on Android | C |
+| `x18` named on OpenHarmony | C |
+| `x18` named on the systems of Apple | C |
+| `x18` named for a processor with the feature `reserve_x18` | C |
+
 ## Alternatives that lost
 
 These alternatives are the session's list. The session wrote it after the ruling, and Camilo has
@@ -180,14 +262,26 @@ not read it.
    chooses a form, and a wrong choice compiles. `switch_other_form` is a second name, and the lint
    rule `switch-form` refuses it in the package.
 
+For the second ruling, these alternatives lost:
+
+1. **Keep `ffr`, as std's list has it.** The name protects nothing, and each compile for a
+   processor with SVE prints one warning for each copy of the switch.
+2. **Name `ffr` only for a target with no SVE.** LLVM reserves `ffr` there too, so the name
+   protects nothing there either.
+3. **Remove `ffr`, with no check.** A later copy of std's list could bring the name back, and only
+   a compile for a processor with SVE shows it.
+
 ## What departs from std and from rotor's decision 34
 
 - **std.** std's `contextSwitch` is an `inline fn`, so each caller of std holds a copy, on each
   architecture. The package keeps that form on aarch64, with `switch_copied`. It departs from it on
   x86-64 with `switch_called`, a function that is never inlined.
+- **std's list.** The aarch64 list does not name `ffr`, and std's list does. That is the sixth
+  change of the lists. It removes a name, as the first change did. The list also names `x18` only
+  where LLVM does not reserve it. The header of `src/switch.zig` lists each change.
 - **rotor's decision 34, "Where the code starts".** It takes the switch with "nothing but the
   names" changed. Records 2 to 4 departed from that sentence. This record adds the two functions of
-  the form, and `switch_other_form`.
+  the form, `switch_other_form`, and the list with no `ffr`.
 
 Row L3 of `docs/hot-path-ledger.md` holds the forced inline of aarch64. The package changes no file
 of rotor.
@@ -200,6 +294,11 @@ of rotor.
   (`build/bench.zig`), so it needs a public name. The module `tejedor` exports no name of
   `src/switch.zig`.
 - **The lint rule `switch-form`**, which keeps `switch_other_form` out of the package.
+- **`x18` where LLVM reserves it.** Ruling 2 names `ffr`, and the session applied its reason to
+  `x18`. On Android, OpenHarmony and Fuchsia, `x18` points to the shadow call stack of the thread,
+  for code built with one. The switch does not swap it, so the fibers of a thread share one
+  shadow call stack. Camilo may rule that `supported` is false there.
+- **The step `test-reserved`**, and its eight targets.
 
 ## Sources
 

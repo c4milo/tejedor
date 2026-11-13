@@ -30,11 +30,13 @@ hold none, because no plain version exists to compare with. The probe of `bench/
 measures L1, and `bench/results/` holds its runs. For L3 the probe gives both forms: the copy, and
 a call that is never inlined. No quiet machine has run it.
 
-The assembly of L1 is std 0.16.0's `fiber.contextSwitch`, with five changes to its clobber lists.
+The assembly of L1 is std 0.16.0's `fiber.contextSwitch`, with six changes to its clobber lists.
 The header of `src/switch.zig` gives each change and its reason. rotor's decision 22 found the
 first three. Record 2 of `docs/decisions/` holds the fourth, which names the `xmm` registers of
-x86-64. Record 3 holds the fifth, which names `nzcv` on aarch64. A Zig upgrade compares std's file
-with that copy (rotor's decision 34, "Upkeep").
+x86-64. Record 3 holds the fifth, which names `nzcv` on aarch64. Record 5 holds the sixth: the
+aarch64 list does not name `ffr`, which LLVM reserves. The list also names `x18` only where LLVM
+does not reserve it, a choice of the session that Camilo has not ruled. A Zig upgrade compares
+std's file with that copy (rotor's decision 34, "Upkeep").
 
 On x86-64 `switch_context` is `switch_called`, a function that holds a copy of L1 and is never
 inlined (records 3 and 5). So each caller calls it. The calling convention then covers the

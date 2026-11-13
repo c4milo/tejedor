@@ -104,7 +104,7 @@ pub fn build(b: *std.Build) void {
     // The check of the Zig version must stop a compile, with its message. So must a call of the
     // context switch in the form of the other architecture.
     const compile_fail = compile_fail_step(b, target);
-    switch_checks.add(b, .{ .compile_fail_step = compile_fail });
+    switch_checks.add(b, .{ .compile_fail_step = compile_fail, .test_step = test_step });
     test_step.dependOn(compile_fail);
 
     const fmt_step = b.step("fmt", "Format each Zig source");
