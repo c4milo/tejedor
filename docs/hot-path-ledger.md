@@ -12,8 +12,9 @@ forced inline, or a safety check that is off. A use with no row here does not la
 |---|---|
 | `src/switch.zig` | the context switch of a fiber, and the entry of a new fiber |
 
-The tests of the switch hold naked functions too, in `src/switch_test.zig` and
-`src/switch_test_registers.zig`. Only a test calls them, and no file of the library imports them.
+The tests of the switch hold naked functions too, in `src/switch_test.zig`,
+`src/switch_test_registers.zig` and `src/switch_test_entry.zig`. Only a test calls them, and no
+file of the library imports them.
 So they have no row.
 
 ## The rows
@@ -22,7 +23,7 @@ So they have no row.
 |---|---|---|---|---|---|
 | L1 | `src/switch.zig`, `switch_context` | inline assembly, with a clobber list of each register that it does not save | no statement of Zig changes the stack pointer and jumps to code on another stack | the tests of `src/switch_test.zig`, `src/switch_test_registers.zig` and `src/switch_test_floats.zig`, in Debug and in ReleaseSafe. The Linux gate runs them for aarch64 and for x86-64 | 2026-11-12 |
 | L3 | `src/switch.zig`, `call_modifier` | a forced inline on aarch64: each caller copies the body of `switch_context`, with `@call(.always_inline, ...)` | plain Zig leaves the choice to the compiler. A call takes the proof from the aarch64 list (record 3) | the tests call the switch in this form, and the mutations of the aarch64 list are CAUGHT in ReleaseSafe | 2026-11-13 |
-| L2 | `src/switch.zig`, `Entry(main).entry` | a naked function in assembly | a new fiber has no caller, so its first instructions load the argument from the stack and jump to `main` | the test "a new fiber starts with its argument, on an aligned stack that ends at the stack's end" | 2026-11-12 |
+| L2 | `src/switch.zig`, `Entry(main).entry` | a naked function in assembly | a new fiber has no caller, so its first instructions load the argument from the stack and jump to `main` | the test "a new fiber starts with its argument, on an aligned stack that ends at the stack's end". On Linux, the test of `src/switch_test_entry.zig` (record 4) | 2026-11-12 |
 
 A row of rotor's ledger holds a count before the technique and a count after it. Rows L1 and L2
 hold none, because no plain version exists to compare with. The probe of `bench/switch_probe.zig`

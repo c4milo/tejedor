@@ -39,6 +39,10 @@
 //! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
 //! this copy (rotor's decision 34, "Upkeep").
 //!
+//! The first context and the entry of a new fiber depart from std's `Kqueue.mainIdleEntry` (record
+//! 4). The argument of the fiber is above its first stack pointer, and `main` starts with a return
+//! address of zero.
+//!
 //! This file holds assembly and a forced inline, so `docs/hot-path-ledger.md` holds a row for each
 //! use.
 const std = @import("std");
@@ -103,36 +107,52 @@ pub const stack_end_alignment = 16;
 /// context, and no context switches back to it.
 pub const Main = fn (argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn;
 
-/// The context that a new fiber starts from. `stack_end` is the address one byte after the stack
-/// of the fiber. This function writes `argument` into the word below `stack_end`, and the entry
-/// hands that word to `main`.
+/// The context that a new fiber starts from (record 4). `stack_end` is the address one byte after
+/// the stack of the fiber. This function writes `argument` into the word below `stack_end`, and
+/// the entry hands that word to `main`. The word is above the first stack pointer, so a signal
+/// handler that runs on this stack before the entry does not write over it.
+///
+/// - On aarch64 the first stack pointer is 16 bytes below `stack_end`. The entry clears the link
+///   register, so `main` starts with a return address of zero.
+/// - On x86_64 the first stack pointer is 24 bytes below `stack_end`, and the word there is zero.
+///   `main` takes that word as its return address. The stack pointer is then 8 bytes past a
+///   multiple of 16, as a function sees it at its entry.
+///
+/// So a stack trace from a fiber ends at the frame of `main`.
 pub fn initial_context(stack_end: usize, argument: usize, comptime main: Main) Context {
     assert(stack_end % stack_end_alignment == 0);
     assert(stack_end != 0);
-    const slot: *usize = @ptrFromInt(stack_end - @sizeOf(usize));
-    slot.* = argument;
+    const argument_slot: *usize = @ptrFromInt(stack_end - @sizeOf(usize));
+    argument_slot.* = argument;
     const entry = @intFromPtr(&Entry(main).entry);
-    return switch (builtin.cpu.arch) {
-        .aarch64 => .{ .sp = stack_end, .fp = 0, .pc = entry },
-        .x86_64 => .{ .rsp = stack_end - @sizeOf(usize), .rbp = 0, .rip = entry },
+    switch (builtin.cpu.arch) {
+        .aarch64 => return .{ .sp = stack_end - stack_end_alignment, .fp = 0, .pc = entry },
+        .x86_64 => {
+            const stack_pointer = stack_end - stack_end_alignment - @sizeOf(usize);
+            const return_slot: *usize = @ptrFromInt(stack_pointer);
+            return_slot.* = 0;
+            return .{ .rsp = stack_pointer, .rbp = 0, .rip = entry };
+        },
         else => @compileError("no fiber entry for this architecture"),
-    };
+    }
 }
 
 /// The entry of a new fiber. It reads the argument from the word below the end of the stack into
-/// the first argument register, as `Kqueue.mainIdleEntry` of std does. Then it jumps to `main`.
+/// the first argument register. Then it jumps to `main`. std's `Kqueue.mainIdleEntry` reads the
+/// argument below the stack pointer on aarch64, and this entry does not (record 4).
 fn Entry(comptime main: Main) type {
     return struct {
         fn entry() callconv(.naked) void {
             switch (builtin.cpu.arch) {
                 .x86_64 => asm volatile (
-                    \\ movq (%%rsp), %%rdi
+                    \\ movq 16(%%rsp), %%rdi
                     \\ jmp %[main:P]
                     :
                     : [main] "X" (&main),
                 ),
                 .aarch64 => asm volatile (
-                    \\ ldr x0, [sp, #-8]
+                    \\ ldr x0, [sp, #8]
+                    \\ mov lr, xzr
                     \\ b %[main]
                     :
                     : [main] "X" (&main),

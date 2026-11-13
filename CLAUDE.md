@@ -35,6 +35,8 @@ tejedor is not:
   clobber lists of the context switch. Read it before you change a list.
 - `docs/decisions/0003-a-copy-on-aarch64-and-a-call-on-x86-64.md` sets how each caller calls the
   switch, and names `nzcv` in the aarch64 list. Read it before you change a call of the switch.
+- `docs/decisions/0004-the-argument-of-a-new-fiber-is-above-its-stack-pointer.md` sets the first
+  context and the entry of a new fiber.
 - `docs/decisions/` holds the records of tejedor. Each later record takes the next number.
 
 If you are about to do something a record rejected, say so and stop. Do not reverse it in code.
@@ -268,9 +270,9 @@ rotor on 2026-09-22.
 - `src/switch.zig` holds the context switch of a fiber, the entry of a new fiber, and the first
   context of a new fiber. It is assembly. It also holds `call_modifier`, the form in which each
   caller calls the switch (record 3). The module `tejedor` exports no name of it.
-- `src/switch_test.zig`, `src/switch_test_registers.zig` and `src/switch_test_floats.zig` hold
-  the tests of the switch. A file whose stem ends in `_test`, or holds `_test_`, holds tests
-  alone.
+- `src/switch_test.zig`, `src/switch_test_registers.zig`, `src/switch_test_floats.zig` and
+  `src/switch_test_entry.zig` hold the tests of the switch. A file whose stem ends in `_test`, or
+  holds `_test_`, holds tests alone.
 - `docs/hot-path-ledger.md` is the ledger of the package for ugly code, such as assembly
   (decision 34, "What it keeps"). Each use has a row there, and `src/switch.zig` is the one file
   of the library that holds such code.
@@ -321,7 +323,8 @@ Ask Camilo before you do one of these:
 - Tests that do not run: a plain `zig build test` prints nothing for a test that it does not
   run. `zig build test --summary all` gives the count of such tests for each step, and the Linux
   gate prints a `SKIP` line for each one. Each test of the switch runs on each platform of step
-  0's check.
+  0's check, but one. The test of `src/switch_test_entry.zig` makes system calls of Linux, so it
+  does not run on macOS (record 4).
 - Linux gate: `zig build test-linux && bash tools/linux_test.sh`. The build step compiles the unit
   tests for Linux on aarch64 and on x86-64, in Debug and in ReleaseSafe, into `zig-out/linux/`.
   It runs none of them. The script runs each one in a Docker container of its own, and stops at
@@ -414,6 +417,7 @@ measured failures and the busy numbers of the probe first:
 |---|---|
 | On aarch64 the list names `nzcv`, and each caller holds a copy of the switch. On x86-64 each caller calls the switch, and the compiler never inlines the call | record 3, and `call_modifier` in `src/switch.zig` |
 | The switch saves no control register. The rounding mode and the exception masks belong to the thread, and a fiber that changes them restores them before it blocks | record 3, and the header of `src/switch.zig` |
+| The argument of a new fiber is above its first stack pointer, and `main` starts with a return address of zero, on both architectures | record 4, and `initial_context` in `src/switch.zig` |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -457,6 +461,11 @@ Each test of the switch runs on each platform.
 switch saves no FPCR on aarch64, and no MXCSR or x87 control word on x86-64. So the rounding mode
 and the exception masks are those of the thread. A fiber that changes them restores them before
 it blocks. Zig code does not change them, and assembly or C code can.
+
+**The first context of a new fiber is record 4, by Camilo's ruling of 2026-11-13.** The argument
+is above the first stack pointer, so a signal handler on the fiber's stack does not write over it.
+That fault showed on aarch64 Linux. `main` starts with a return address of zero, so a stack trace
+from a fiber ends at the frame of `main`. std's `Kqueue.mainIdleEntry` does neither.
 
 Step 0's check names three platforms. This is what ran on 2026-11-13:
 

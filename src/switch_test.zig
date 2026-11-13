@@ -144,9 +144,11 @@ var seen_argument: usize = 0;
 var seen_stack_pointer: usize = 0;
 var seen_caller_frame: usize = 0;
 var seen_frame: usize = 0;
+var seen_return_address: usize = 0;
 
 fn first_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {
     seen_argument = argument;
+    seen_return_address = @returnAddress();
     seen_stack_pointer = stack_pointer_of_caller();
     // The first word of a frame holds the frame pointer of the caller.
     seen_frame = @frameAddress();
@@ -184,11 +186,14 @@ test "a new fiber starts with its argument, on an aligned stack that ends at the
     if (!supported) return error.SkipZigTest;
     const argument = 0x0123_4567_89AB_CDEF;
     const stack_end = end_of(&stack) - canary_bytes;
-    @memset(stack[stack_bytes - canary_bytes ..], canary);
+    // The whole stack holds the canary. So a word that `initial_context` does not write is not
+    // zero by chance.
+    @memset(&stack, canary);
     seen_argument = 0;
     seen_stack_pointer = 0;
     seen_caller_frame = 1;
     seen_frame = 0;
+    seen_return_address = 1;
     start_fiber(stack_end, argument, first_fiber);
     switch_in_form(&to_fiber);
 
@@ -198,9 +203,10 @@ test "a new fiber starts with its argument, on an aligned stack that ends at the
     try testing.expectEqual(0, seen_stack_pointer % stack_end_alignment);
     try testing.expect(seen_stack_pointer > @intFromPtr(&stack));
     try testing.expect(seen_stack_pointer <= stack_end);
-    // The first frame of a fiber names no frame of a caller, so the chain of frame pointers ends
-    // there.
+    // The first frame of a fiber names no frame of a caller, and no return address (record 4). So
+    // a stack trace from a fiber ends at this frame.
     try testing.expectEqual(0, seen_caller_frame);
+    try testing.expectEqual(0, seen_return_address);
     try expect_saved_frame(stack_end);
     // The fiber wrote no byte at its stack's end or above it.
     for (stack[stack_bytes - canary_bytes ..]) |byte| try testing.expectEqual(canary, byte);
@@ -480,4 +486,5 @@ test "a switch saves the context that its message names, and resumes the other, 
 test {
     _ = @import("switch_test_registers.zig");
     _ = @import("switch_test_floats.zig");
+    _ = @import("switch_test_entry.zig");
 }
