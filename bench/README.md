@@ -27,14 +27,15 @@ quiet machine.
 - Each form of the switch runs in three shapes, and each one is a row. The report has three lines
   for each row: the switches, the empty function, and the first less the second.
 
-### The two forms
+### The forms
 
-The probe measures two forms of the switch (record 3):
+The probe measures two forms of the switch (record 3), and on x86-64 a candidate (record 5):
 
 | form | what a caller holds | the form of the package on |
 |---|---|---|
 | a copy | a copy of the switch | aarch64 |
 | a call | a call of a function that holds the switch, and that saves and restores the callee-saved registers | x86-64 |
+| the jump candidate | a call of `jump_switch` of `jump_switch.zig`, which pushes the callee-saved registers and resumes with a jump | no platform: a candidate of x86-64 |
 
 The probe gets the form of the package with a plain call of `switch_context`, as the package does.
 It gets the other form with a plain call of `switch_other_form`: a call on aarch64, and a copy on
@@ -53,13 +54,17 @@ Each form runs in three shapes (record 5):
 A caller of step 1 switches in a function, and then returns. A processor predicts a return from a
 stack of the return addresses of the calls that it saw. After a switch, a return can go to an
 address that the other side pushed, and the processor then predicts it wrong. Record 5 gives the
-count of such returns for each form and shape. An empty block of assembly after the switch keeps a
-call of the switch a call, and not a jump at the end of the function. The function of the fiber
-holds one `nop` more than the function of the main context, so an optimized build cannot merge
-the two.
+count of such returns for each form and shape. After the switch, an empty block of assembly keeps a
+call of the switch a call. The function of the fiber holds one `nop` more than the function of the
+main context, so an optimized build cannot merge the two.
 
 A report gives the form of the package first, and says so in its row. The other form follows it,
-to compare with. On a Mac the x86-64 build runs under an emulator, so no number of a call on
+to compare with, and then the candidate, on x86-64.
+
+The candidate is a switch in the style of Boost.Context for x86-64 System V. It is under `bench/`
+alone, and the package does not use it. It replaces the call only if it measures faster, and
+Camilo rules it. `zig build test-bench` runs its four tests on x86-64, and the Linux gate runs
+them on x86-64 Linux. On a Mac the x86-64 build runs under an emulator, so no number of a call on
 x86-64 is in a result. The CI ran the probe one time on a real x86-64 processor, and record 5 gives
 those numbers.
 
@@ -76,9 +81,11 @@ the switch in both loops. "With `switch_context` never inlined" was a call.
 - The cost of a switch in a caller of step 1. The shapes with functions come closer to it than the
   loop, and they still keep few registers across the switch.
 - A slow single switch. A batch mean hides it.
-- A drift of the machine during a run. The probe runs each row one time, in a fixed order: the
-  form of the package in each shape, then the other form in each shape. A drift can fall on one
-  row more than on another, so compare the forms of one run with care.
+- A drift of the machine during a run. The probe runs each row one time, in a fixed order.
+  First come the three shapes of the form of the package, then the three of the other form. On
+  x86-64 the three of the candidate come last. So a row of the candidate runs six rows after the
+  row of the call in the same shape. A drift can fall on one row more than on another, so compare
+  the forms of one run with care.
 
 ### How the probe knows that it measured the switch
 
@@ -150,6 +157,7 @@ and in no file of `results/`.
 | `switch_probe.zig` | the entry of the probe of the context switch, and the table of the machine |
 | `switch_probe_forms.zig` | the forms and the shapes that the probe measures, and the run of each row |
 | `switch_probe_report.zig` | the table of the numbers in the report |
+| `jump_switch.zig` | the jump candidate of record 5 for x86-64, and its tests |
 | `measure.zig` | the method that times a probe: batches, the median, the p99, and two loops back to back |
 | `machine.zig` | the machine and the load average, for the report |
 | `results/` | the reports of the runs that the steps above recorded. A file can hold several runs. Record 5 holds the one CI run |

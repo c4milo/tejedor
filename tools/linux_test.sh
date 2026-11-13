@@ -2,6 +2,7 @@
 #
 # linux_test: runs each test executable that `zig build test-linux` installed under
 # zig-out/linux/, each in a Linux container of its own, and stops at the first one that fails.
+# The executables hold the unit tests of the package and those of the bench programs.
 #
 #     zig build test-linux && bash tools/linux_test.sh
 #     bash tools/linux_test.sh linux/arm64        # the executables of one platform alone
@@ -52,7 +53,7 @@ readonly stamp_name='.test-linux-stamp'
 readonly manifest_name='tests.manifest'
 # Each path that holds a source of an installed executable, from the top of the work tree. The
 # script compares only the .zig and .zon files under them with the stamp.
-readonly source_paths=(src build build.zig build.zig.zon)
+readonly source_paths=(src bench build build.zig build.zig.zon)
 # The place of the install directory in the container. The mount is read-only.
 readonly mount_point='/t'
 # The place of an executable when it runs, on the container's own filesystem.

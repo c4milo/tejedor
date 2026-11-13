@@ -116,7 +116,8 @@ fn add_probe(
 }
 
 /// The root module of the probe, with the context switch of the package as its import `switch`.
-fn probe_module(
+/// `build/linux.zig` builds the unit tests of the bench programs for Linux from it too.
+pub fn probe_module(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,

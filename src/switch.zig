@@ -53,10 +53,19 @@
 //! and a call with `.never_inline` of the aarch64 one. `switch_other_form` gives the other form of
 //! an architecture to the tests and the probe. The lint rule `switch-form` refuses a reference to
 //! that name in each other file under `src/`. Its header lists the references that it cannot see.
+//! On x86_64 the probe also measures a candidate, `bench/jump_switch.zig`, which the package does
+//! not use (record 5).
 //!
 //! The switch saves no control register: not FPCR on aarch64, and not MXCSR or the x87 control
 //! word on x86_64. So the rounding mode and the exception masks belong to the thread, and not to
 //! a fiber. A fiber that changes them restores them before it blocks (record 3).
+//!
+//! Each form of the switch needs a process with no shadow stack and no indirect branch tracking of
+//! the processor, such as CET on x86_64. std's switch needs the same. After a switch, a return can
+//! go to an address that the other context pushed, and a shadow stack refuses that return. The
+//! switch resumes at a label with no `endbr64`, and branch tracking refuses that jump. The build
+//! writes no GNU property note that asks Linux for either. The ReleaseSafe probe for x86_64 Linux
+//! holds no such note (`llvm-readelf -n`, 2026-11-13).
 //!
 //! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
 //! this copy (rotor's decision 34, "Upkeep").

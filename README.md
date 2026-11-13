@@ -12,8 +12,10 @@ memory for the fibers and their stacks.
 
 Nothing is released, and the package has no public API yet. The design is accepted. The build
 order has seven steps, 0 to 6. Step 0 is built: the context switch of a fiber, its tests, and a
-probe that measures the switch. Its first numbers are in [bench/results](bench/results). They are
-from a busy machine, so they are not final. Step 1 waits for a review of them. Camilo ruled on the
+probe that measures the switch. On x86-64 the probe also measures a candidate switch, which the
+package does not use. The first numbers of the probe are in [bench/results](bench/results). They
+are from a busy machine, so they are not final. One run in CI on an x86-64 processor is in the
+fifth decision record. Step 1 waits for a review of the numbers. Camilo ruled on the
 known errors of the switch on 2026-11-13, and [CLAUDE.md](CLAUDE.md) says where each ruling is,
 under "Where the work stands".
 

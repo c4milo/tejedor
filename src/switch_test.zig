@@ -168,8 +168,8 @@ fn saved_frame_pointer(context: *const Context) usize {
 
 /// The switch back from `first_fiber` saved the frame pointer of the fiber in `fiber_context`.
 /// On aarch64 `first_fiber` holds a copy of the switch, so that is the frame of `first_fiber`. On
-/// x86_64 `first_fiber` calls the switch, so it is the frame of `switch_context`, and the first word
-/// of that frame names the frame of `first_fiber`.
+/// x86_64 `first_fiber` calls the switch, so it is the frame of `switch_context`, and the first
+/// word of that frame names the frame of `first_fiber`.
 fn expect_saved_frame(stack_end: usize) !void {
     const saved = saved_frame_pointer(&fiber_context);
     try testing.expect(seen_frame != 0);

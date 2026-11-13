@@ -18,6 +18,7 @@ const one_decimal_under_ns = 100;
 /// The words of the report for the place of a form beside the form of the package.
 fn role_text(form: Form) []const u8 {
     if (form == probe_forms.package_form) return "the form of the package";
+    if (form == .jump) return "a candidate";
     return "the other form";
 }
 
@@ -92,7 +93,7 @@ fn summary_of(median_ns: f64) measure.Summary {
     return .{ .median_ns = median_ns, .p99_ns = median_ns * 2, .least_ns = median_ns / 2 };
 }
 
-pub fn outcome_of(first_ns: f64, second_ns: f64, returns: u64) Outcome {
+fn outcome_of(first_ns: f64, second_ns: f64, returns: u64) Outcome {
     return .{
         .form = .copy,
         .shape = .loop,
@@ -141,16 +142,21 @@ test "the numbers print as a table of three rows for each form in each shape" {
     var call = outcome_of(2, 250, 600);
     call.form = .call;
     call.shape = .two_functions;
-    const outcomes = outcomes_of(&.{ copy, call });
+    var jump = outcome_of(2, 30, 600);
+    jump.form = .jump;
+    const outcomes = outcomes_of(&.{ copy, call, jump });
     try print_numbers(&writer, small, &outcomes);
     const table = writer.buffered();
     try testing.expect(!contains(table, "FAILED"));
     try testing.expect(contains(table, "| one switch to a fiber and one switch back, with a" ++
-        " copy of the switch in the caller, in the loop (" ++ comptime role_text(.copy) ++ ") | 12.3 |" ++
-        " 24.5 | 6.13 |\n| one call of an empty function, beside those switches | 1.50 | 3.00 |" ++
-        " 0.75 |\n| those switches less that call, for each sample | 10.8 | 21.5 | 5.38 |\n"));
+        " copy of the switch in the caller, in the loop (" ++ comptime role_text(.copy) ++
+        ") | 12.3 | 24.5 | 6.13 |\n| one call of an empty function, beside those switches |" ++
+        " 1.50 | 3.00 | 0.75 |\n| those switches less that call, for each sample | 10.8 | 21.5 |" ++
+        " 5.38 |\n"));
     try testing.expect(contains(table, "with a call of the switch, in a function of each side (" ++
         comptime role_text(.call) ++ ") | 250 | 500 | 125 |"));
+    try testing.expect(contains(table, "with a call of the jump candidate, in the loop (a" ++
+        " candidate) | 30.0 | 60.0 | 15.0 |"));
     try testing.expect(contains(table, "a batch of 100 operations"));
 }
 
@@ -158,6 +164,7 @@ test "the form of the package and the other form name their roles" {
     try testing.expectEqualStrings("the form of the package", role_text(probe_forms.package_form));
     const other: Form = if (probe_forms.package_form == .copy) .call else .copy;
     try testing.expectEqualStrings("the other form", role_text(other));
+    try testing.expectEqualStrings("a candidate", role_text(.jump));
 }
 
 test "a row that measured nothing prints FAILED in its row, and under the table" {
@@ -168,8 +175,8 @@ test "a row that measured nothing prints FAILED in its row, and under the table"
     try print_numbers(&writer, small, &outcomes);
     try testing.expect(contains(
         writer.buffered(),
-        "in the loop (" ++ comptime role_text(.copy) ++ ") | FAILED: the fiber ran 599 times for 600" ++
-            " switches | | |\n",
+        "in the loop (" ++ comptime role_text(.copy) ++ ") | FAILED: the fiber ran 599 times" ++
+            " for 600 switches | | |\n",
     ));
     try testing.expect(contains(writer.buffered(), "\nFAILED: the probe measured nothing"));
 

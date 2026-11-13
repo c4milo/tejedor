@@ -106,7 +106,8 @@ one switch back.
 5. **Leave the form to the compiler, as before.** The tests then prove the list only where the
    compiler copies the switch.
 
-No real x86-64 processor ran the probe, so the table gives no number for the call on x86-64.
+No real x86-64 processor ran the probe before this ruling, so the table gives no number for
+the call on x86-64. Record 5 gives the first run in CI, on an x86-64 processor, later that day.
 
 ## What departs from std and from rotor's decision 34
 
@@ -121,8 +122,8 @@ No real x86-64 processor ran the probe, so the table gives no number for the cal
 - **rotor's decision 34, "Upkeep".** It counts three errors of std's lists. The package now
   corrects five, and it covers the registers of the table above with a call on x86-64.
 - **rotor's decision 34, "The fiber switch has no measured cell".** rotor's probe measured an
-  `inline` copy of the switch. On x86-64 the package now calls the switch, and no real x86-64
-  processor measured that call.
+  `inline` copy of the switch. On x86-64 the package now calls the switch. One CI run measured
+  that call on a real x86-64 processor, and record 5 gives it.
 
 A forced inline is ugly code, so row L3 of `docs/hot-path-ledger.md` holds it. Since record 5 that
 row names the inline function of aarch64. The package changes no file of rotor. A note in rotor's

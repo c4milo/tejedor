@@ -6,6 +6,7 @@
 //! - `copy`: each caller holds a copy of the switch. It is the form of the package on aarch64.
 //! - `call`: each caller calls a function that holds the switch. It is the form of the package on
 //!   x86_64.
+//! - `jump`: each caller calls the candidate of `jump_switch.zig`, on x86_64 alone (record 5).
 //!
 //! The probe gets the form of the package with a plain call of `switch_context`, as the package
 //! does. It gets the other form with a plain call of `switch_other_form` (record 5).
@@ -27,16 +28,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const measure = @import("measure.zig");
 const switching = @import("switch");
+const jumping = @import("jump_switch.zig");
 
 pub const Form = enum {
     copy,
     call,
+    jump,
 
     /// The words of the report for the form.
     pub fn text(form: Form) []const u8 {
         return switch (form) {
             .copy => "with a copy of the switch in the caller",
             .call => "with a call of the switch",
+            .jump => "with a call of the jump candidate",
         };
     }
 };
@@ -62,12 +66,17 @@ pub const package_form: Form = switch (builtin.cpu.arch) {
     else => .copy,
 };
 
-/// The form of the package, and the other form. The report gives the form of the package first.
-pub const forms = [_]Form{ package_form, other_form };
+/// The form of the package, the other form, and the candidate where it runs. The report gives the
+/// form of the package first.
+pub const forms = if (jumping.supported)
+    [_]Form{ package_form, other_form, .jump }
+else
+    [_]Form{ package_form, other_form };
 
 const other_form: Form = switch (package_form) {
     .copy => .call,
     .call => .copy,
+    .jump => unreachable,
 };
 
 pub const shapes = [_]Shape{ .loop, .one_function, .two_functions };
@@ -138,27 +147,39 @@ const Side = enum { main, fiber };
 
 /// The types and the switch of one form.
 fn Way(comptime form: Form) type {
-    return struct {
-        const Context = switching.Context;
-        const Switch = switching.Switch;
-        const initial_context = switching.initial_context;
+    return switch (form) {
+        .copy, .call => struct {
+            const Context = switching.Context;
+            const Switch = switching.Switch;
+            const initial_context = switching.initial_context;
 
-        inline fn switch_once(message: *const Switch) void {
-            if (form == package_form) {
-                switching.switch_context(message);
-            } else {
-                switching.switch_other_form(message);
+            inline fn switch_once(message: *const Switch) void {
+                if (form == package_form) {
+                    switching.switch_context(message);
+                } else {
+                    switching.switch_other_form(message);
+                }
             }
-        }
 
-        /// The address to resume at that a switch saved in `context`.
-        fn resume_address(context: *const Context) usize {
-            return switch (builtin.cpu.arch) {
-                .aarch64 => context.pc,
-                .x86_64 => context.rip,
-                else => @compileError("no fiber switch for this architecture"),
-            };
-        }
+            /// The address to resume at that a switch saved in `context`.
+            fn resume_address(context: *const Context) usize {
+                return switch (builtin.cpu.arch) {
+                    .aarch64 => context.pc,
+                    .x86_64 => context.rip,
+                    else => @compileError("no fiber switch for this architecture"),
+                };
+            }
+        },
+        .jump => struct {
+            const Context = jumping.Context;
+            const Switch = jumping.Switch;
+            const initial_context = jumping.initial_context;
+            const resume_address = jumping.resume_address;
+
+            inline fn switch_once(message: *const Switch) void {
+                jumping.jump(message);
+            }
+        },
     };
 }
 
@@ -175,9 +196,9 @@ fn Functions(comptime form: Form, comptime shape: Shape) type {
         /// build counts them, so the probe times no count.
         var returns: u64 = 0;
 
-        /// The shape `one_function`: both sides call it. The empty block of assembly after the
-        /// switch keeps a call of the switch a call, and not a jump at the end of this function.
-        /// So this function returns after the switch, in each form.
+        /// The shape `one_function`: both sides call it. After the switch, the empty block of
+        /// assembly keeps a call of the switch a call. So this function returns after the switch,
+        /// in each form.
         noinline fn switch_and_return(message: *const Types.Switch) void {
             Types.switch_once(message);
             asm volatile ("" ::: .{ .memory = true });
@@ -214,6 +235,9 @@ fn Run(comptime form: Form, comptime shape: Shape) type {
             to_main: Types.Switch = undefined,
             /// The times that the fiber ran. The probe checks that each switch reached it.
             returns: u64 = 0,
+            /// The address to resume at of the fiber after the run, which a test reads. The jump
+            /// candidate keeps it on the stack of the fiber, and the next run uses that stack.
+            fiber_resumed: usize = 0,
             /// For a call, the return address of the call of the switch on each side, which a test
             /// reads. A side reads the other while the other waits at its switch. `run` reads the
             /// fiber after the run. The fiber reads the main context each time that it runs.
@@ -287,6 +311,7 @@ fn Run(comptime form: Form, comptime shape: Shape) type {
             );
             var loops: Loops = .{ .state = state };
             const pair = measure.sample_pairs(Loops, &loops, run_plan, values);
+            state.fiber_resumed = Types.resume_address(&state.fiber_context);
             read_caller(form, &state.fiber_caller, &state.fiber_context);
             return .{
                 .form = form,
@@ -358,11 +383,13 @@ fn expect_in(address: usize, start: usize, starts: []const usize) !void {
 }
 
 /// A switch saved `resumed` on a side whose function starts at `side`. For a call, that address
-/// is in the function of the call. For a copy, it is in the function of the side.
+/// is in the function of the call. For a copy, it is in the function of the side. For the jump
+/// candidate it is the return address of the call of `jump_switch`, so it is in the function of
+/// the side too.
 fn expect_side(comptime form: Form, resumed: usize, side: usize, starts: []const usize) !void {
     const expected = switch (form) {
         .call => called_switch_start(),
-        .copy => side,
+        .copy, .jump => side,
     };
     try expect_in(resumed, expected, starts);
 }
@@ -404,17 +431,18 @@ fn probe_starts() [1 + 3 * forms.len * shapes.len]usize {
 /// the test checks the form alone there. A call saves the address in `switch_called` that the
 /// fiber of the call in the loop saved too, and a copy saves another one. In the shape
 /// `two_functions`, the two sides also have two functions, and the compiler merged none.
+/// The jump candidate keeps the address of the main context on the stack of the test. Later calls
+/// write over it, so the test reads the fiber alone for the candidate.
 fn expect_form(comptime form: Form, comptime shape: Shape) !void {
     const R = Run(form, shape);
     const starts = probe_starts();
     const fiber_start = side_start(form, shape, .fiber).?;
-    const fiber_resumed = R.Types.resume_address(&R.switcher.fiber_context);
-    try expect_side(form, fiber_resumed, fiber_start, &starts);
+    try expect_side(form, R.switcher.fiber_resumed, fiber_start, &starts);
     if (form == .call) try expect_in(R.switcher.fiber_caller, fiber_start, &starts);
+    if (form == .jump) return;
     const main_resumed = R.Types.resume_address(&R.switcher.main_context);
     const main_start = side_start(form, shape, .main) orelse {
-        const called = Run(.call, .loop);
-        const called_resumed = called.Types.resume_address(&called.switcher.fiber_context);
+        const called_resumed = Run(.call, .loop).switcher.fiber_resumed;
         return testing.expectEqual(form == .call, main_resumed == called_resumed);
     };
     try expect_side(form, main_resumed, main_start, &starts);
@@ -463,7 +491,8 @@ test "the form of the package is a copy on aarch64 and a call on x86_64, as in r
     try testing.expectEqual(expected, package_form);
 }
 
-test "the probe measures the form of the package, and the other form" {
-    try testing.expectEqual(2, forms.len);
+test "the jump candidate is a form of the probe on x86_64 alone" {
+    const has_jump = std.mem.indexOfScalar(Form, &forms, .jump) != null;
+    try testing.expectEqual(jumping.supported, has_jump);
     try testing.expect(forms[0] != forms[1]);
 }

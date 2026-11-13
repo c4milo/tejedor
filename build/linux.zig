@@ -1,11 +1,13 @@
-//! `zig build test-linux`: builds the unit tests of the package for Linux, and installs them under
-//! zig-out/linux/. It runs none of them: tools/linux_test.sh runs them in Docker. `build.zig`
-//! stays short, so this file holds that part of the build.
+//! `zig build test-linux`: builds the unit tests of the package and of the bench programs for
+//! Linux, and installs them under zig-out/linux/. It runs none of them: tools/linux_test.sh runs
+//! them in Docker. `build.zig` stays short, so this file holds that part of the build.
 //!
-//! The step builds one test executable for each processor of `processors` and each mode of the
-//! build: aarch64 and x86-64, in Debug and in ReleaseSafe. The check of step 0 of the build order
-//! names both processors, and the faults of the context switch showed only in an optimized build
-//! (rotor's decision 34, "Build order" and "Upkeep").
+//! The step builds one test executable for each processor of `processors`, each suite and each
+//! mode of the build. The processors are aarch64 and x86-64, the suites are the package and the
+//! bench programs, and the modes are Debug and ReleaseSafe. The tests of the jump candidate of
+//! `bench/jump_switch.zig` run on x86-64 alone, so the bench programs are a suite here too (record
+//! 5). The check of step 0 of the build order names both processors. The faults of the context
+//! switch showed only in an optimized build (rotor's decision 34, "Build order" and "Upkeep").
 //!
 //! The ABI is musl and nothing links libc, so each executable is static and takes nothing from
 //! the image of its container. The CPU model is the baseline of the architecture, so an
@@ -57,15 +59,22 @@ pub const Mode = struct {
     optimize: std.builtin.OptimizeMode,
 };
 
-pub const Options = struct {
-    /// Each mode that `zig build test` runs the unit tests in.
-    modes: []const Mode,
+/// One set of unit tests, with the word that the name of each of its executables starts with.
+pub const Suite = struct {
+    name: []const u8,
     /// Makes the root module of the unit tests for a target and a mode, with its imports.
-    test_module: *const fn (
+    module: *const fn (
         b: *std.Build,
         target: std.Build.ResolvedTarget,
         optimize: std.builtin.OptimizeMode,
     ) *std.Build.Module,
+};
+
+pub const Options = struct {
+    /// Each mode that `zig build test` runs the unit tests in.
+    modes: []const Mode,
+    /// Each set of unit tests, in the order in which they run.
+    suites: []const Suite,
 };
 
 /// The steps that this file adds.
@@ -77,6 +86,7 @@ pub const Steps = struct {
 /// Adds the steps `test-linux` and `test-linux-compile`.
 pub fn add(b: *std.Build, options: Options) Steps {
     assert(options.modes.len > 0);
+    assert(options.suites.len > 0);
     const stamp = b.addSystemCommand(&.{"touch"});
     stamp.addArg(b.pathJoin(&.{ b.install_path, install_directory, stamp_name }));
     // The stamp is the time at which this install finished, so each run writes it again.
@@ -89,19 +99,14 @@ pub fn add(b: *std.Build, options: Options) Steps {
 
     var manifest: []const u8 = "";
     for (processors) |processor| {
-        const target = linux_target(b, processor.arch);
-        for (options.modes) |mode| {
-            const name = b.fmt("tejedor-{s}-{s}", .{ @tagName(processor.arch), mode.name });
-            const tests = b.addTest(.{
-                .name = name,
-                .root_module = options.test_module(b, target, mode.optimize),
-            });
-            compile_step.dependOn(&tests.step);
-            const install = b.addInstallArtifact(tests, .{
-                .dest_dir = .{ .override = .{ .custom = install_directory } },
-            });
-            stamp.step.dependOn(&install.step);
-            manifest = b.fmt("{s}{s} {s}\n", .{ manifest, processor.docker_platform, name });
+        for (options.suites) |suite| {
+            for (options.modes) |mode| {
+                const name = add_tests(b, processor, suite, mode, .{
+                    .compile_step = compile_step,
+                    .stamp_step = &stamp.step,
+                });
+                manifest = b.fmt("{s}{s} {s}\n", .{ manifest, processor.docker_platform, name });
+            }
         }
     }
     assert(manifest.len > 0);
@@ -120,6 +125,34 @@ pub fn add(b: *std.Build, options: Options) Steps {
     );
     step.dependOn(&stamp.step);
     return .{ .compile = compile_step };
+}
+
+/// The steps that each test executable joins.
+const Joins = struct {
+    compile_step: *std.Build.Step,
+    stamp_step: *std.Build.Step,
+};
+
+/// Adds the test executable of one suite for one processor in one mode, and its install. Returns
+/// its name.
+fn add_tests(
+    b: *std.Build,
+    processor: Processor,
+    suite: Suite,
+    mode: Mode,
+    joins: Joins,
+) []const u8 {
+    const name = b.fmt("{s}-{s}-{s}", .{ suite.name, @tagName(processor.arch), mode.name });
+    const tests = b.addTest(.{
+        .name = name,
+        .root_module = suite.module(b, linux_target(b, processor.arch), mode.optimize),
+    });
+    joins.compile_step.dependOn(&tests.step);
+    const install = b.addInstallArtifact(tests, .{
+        .dest_dir = .{ .override = .{ .custom = install_directory } },
+    });
+    joins.stamp_step.dependOn(&install.step);
+    return name;
 }
 
 /// Linux on `arch`, with the musl ABI and the baseline CPU model.

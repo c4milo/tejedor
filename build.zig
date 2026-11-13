@@ -19,8 +19,9 @@
 //! pepegrillo, a lazy package of `build.zig.zon` that only the root build asks for. So a project
 //! that depends on tejedor never fetches it. `build/tools.zig` holds that part of the build.
 //!
-//! `zig build test-linux` builds the unit tests for Linux on aarch64 and on x86-64, in both modes,
-//! under zig-out/linux/. It runs none of them: tools/linux_test.sh runs them in Docker.
+//! `zig build test-linux` builds the unit tests of the package and of the bench programs for Linux
+//! on aarch64 and on x86-64, in both modes, under zig-out/linux/. It runs none of them:
+//! tools/linux_test.sh runs them in Docker.
 //! `zig build test` compiles them too, and installs none (build/linux.zig).
 //!
 //! `zig build bench-switch` builds the probe of the context switch in ReleaseSafe, and runs it.
@@ -95,8 +96,12 @@ pub fn build(b: *std.Build) void {
         );
         narrow_step.dependOn(run_step);
     }
-    // The same tests for Linux, which tools/linux_test.sh runs in Docker.
-    const linux_steps = linux.add(b, .{ .modes = &test_modes, .test_module = test_module });
+    // The same tests for Linux, and those of the bench programs, which tools/linux_test.sh runs in
+    // Docker.
+    const linux_steps = linux.add(b, .{ .modes = &test_modes, .suites = &.{
+        .{ .name = "tejedor", .module = test_module },
+        .{ .name = "bench", .module = bench.probe_module },
+    } });
     test_step.dependOn(linux_steps.compile);
     // The programs that measure the package.
     bench.add(b, .{ .target = target, .test_step = test_step, .modes = &test_modes });

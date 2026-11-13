@@ -21,6 +21,10 @@ So they have no row.
 form of a shape of the probe. Its tests read a frame through a raw pointer. Only the probe and its
 tests run that code, and no file of the library imports it. So it has no row.
 
+`bench/jump_switch.zig` holds the jump candidate of record 5: a naked function in assembly for
+x86-64. Only the probe and its tests call it, and no file of the library imports it. So it has no
+row either. If Camilo rules that it replaces the call, it moves to `src/` with a row.
+
 ## The rows
 
 | id | file and function | technique | why plain Zig cannot do it | what checks it | date |

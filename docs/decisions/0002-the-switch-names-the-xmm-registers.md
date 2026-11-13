@@ -99,8 +99,10 @@ rotor's to add.
 
 ## What this correction does not cover
 
-- **A real x86-64 processor.** Each run above was under an emulator. CI runs the tests on an
-  x86-64 runner, and no push has started the CI.
+- **A real x86-64 processor.** Each run above was under an emulator. On 2026-11-13 the CI ran the
+  tests on GitHub's runner of Linux on x86-64, at `ded6989`, and they passed (CLAUDE.md, "Where
+  the work stands"). By then the switch was a call on x86-64, so that run could not show the fault
+  of this record.
 - **A target with AVX-512.** The tests compile for the CPU model `x86_64_v4`, in Debug and in
   ReleaseSafe, with `xmm0` and `zmm0` both in the list. `mac` has no processor and no emulator
   that runs AVX-512, so no such test ran.

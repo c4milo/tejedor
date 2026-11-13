@@ -286,9 +286,8 @@ rotor on 2026-09-22.
 - `src/switch_test.zig`, `src/switch_test_registers.zig`, `src/switch_test_floats.zig`,
   `src/switch_test_entry.zig` and `src/switch_test_form.zig` hold the tests of the switch. A file
   whose stem ends in `_test`, or holds `_test_`, holds tests alone.
-- `build/switch_checks.zig` holds the checks of the switch that are compiles.
-- `tools/switch_reserved.zig` holds one copy of the switch, which `zig build test-reserved` builds
-  for each aarch64 target where LLVM reserves a register (record 5).
+- `build/switch_checks.zig` holds the checks of the switch that are compiles. One of them builds
+  `tools/switch_reserved.zig`, a copy of the switch, for each target of `zig build test-reserved`.
 - `docs/hot-path-ledger.md` is the ledger of the package for ugly code, such as assembly
   (decision 34, "What it keeps"). Each use has a row there, and `src/switch.zig` is the one file
   of the library that holds such code.
@@ -299,6 +298,9 @@ rotor on 2026-09-22.
   `bench/README.md` says what each program measures, and how to record a result. A bench program
   takes a file of the library as a module of its own, which `build/bench.zig` makes. So the
   module `tejedor` exports no name for a probe.
+- `bench/switch_probe.zig` is the entry of the probe. `bench/switch_probe_forms.zig` and
+  `bench/switch_probe_report.zig` are its pieces. `bench/jump_switch.zig` holds the jump candidate
+  of record 5, for x86-64. No file of the library imports it.
 - `tools/` holds the developer tools. `zig build lint` runs them, and the build links no part of
   them into the package. The rules come from pepegrillo, a lazy package in `build.zig.zon` that
   only the root build asks for. `tools/` holds tejedor's configuration of each rule. rotor stays
@@ -331,9 +333,10 @@ Ask Camilo before you do one of these:
 - Test: `zig build test` runs the unit tests in Debug and in ReleaseSafe, then checks the format
   of each Zig source. Every change passes it before it is committed. The tests run in both modes
   because the faults of the context switch showed only in an optimized build (decision 34,
-  "Upkeep"). It also compiles the unit tests for Linux on aarch64 and on x86-64, and runs none of
-  them. So a change that does not compile or assemble for Linux fails on a Mac. It runs the unit
-  tests of the bench programs in both modes, and it compiles the probe for the host and for Linux.
+  "Upkeep"). It also compiles the unit tests of the package and of the bench programs for Linux on
+  aarch64 and on x86-64, and runs none of them. So a change that does not compile or assemble for
+  Linux fails on a Mac. It runs the unit tests of the bench programs in both modes, and it compiles
+  the probe for the host and for Linux. It runs the three checks below that are compiles.
 - One mode alone: `zig build test-debug` and `zig build test-release`.
 - Compile-fail check: `zig build test-compile-fail` builds each program of `tools/compile_fail/`,
   and each compile must fail with its message. One program hands the check of the Zig version
@@ -349,12 +352,14 @@ Ask Camilo before you do one of these:
   Fuchsia, UEFI and Windows, and with the feature `reserve_x18`. The aarch64 list names neither
   there (record 5). `zig build test` runs this step too.
 - Tests that do not run: a plain `zig build test` prints nothing for a test that it does not
-  run. `zig build test --summary all` gives the count of such tests for each step, and the Linux
-  gate prints a `SKIP` line for each one. Each test of the switch runs on each platform of step
-  0's check, but one. The test of `src/switch_test_entry.zig` makes system calls of Linux, so it
-  does not run on macOS (record 4).
+  run. `zig build test --summary all` counts them for each step, and the Linux gate prints a
+  `SKIP` line for each one. The test of `src/switch_test_entry.zig` makes system calls of Linux,
+  so it does not run on macOS (record 4). The four tests of the jump candidate in
+  `bench/jump_switch.zig` run on x86-64 alone (record 5).
 - Linux gate: `zig build test-linux && bash tools/linux_test.sh`. The build step compiles the unit
-  tests for Linux on aarch64 and on x86-64, in Debug and in ReleaseSafe, into `zig-out/linux/`.
+  tests of the package and of the bench programs for Linux on aarch64 and on x86-64, in Debug and
+  in ReleaseSafe, into `zig-out/linux/`. The bench programs are in the gate because the tests of
+  the jump candidate run on x86-64 alone (record 5).
   It runs none of them. The script runs each one in a Docker container of its own, and stops at
   the first failure.
   - `bash tools/linux_test.sh linux/arm64` runs the executables of one platform alone.
@@ -458,8 +463,10 @@ round. He asked first why the switch is never inlined on x86-64, and read the se
 | what Camilo ruled on 2026-11-13, second round | where it shows |
 |---|---|
 | "Call, and probe a jump": a plain call of `switch_context` is a call on x86-64 and a copy on aarch64, and `call_modifier` goes | record 5, `switch_context` in `src/switch.zig`, `src/switch_test_form.zig` and `tools/compile_fail/` |
+| The probe gets a candidate for x86-64: a switch in assembly in the style of Boost.Context, under `bench/` alone. It replaces the call only if it measures faster, and Camilo rules it | record 5, `bench/jump_switch.zig`, and its tests in `zig build test-bench` |
 | The aarch64 list does not name `ffr`, a register that LLVM reserves. A record states the departure from std's list | record 5, the list in `src/switch.zig`, and `zig build test-reserved` |
 | `supported` is false on Windows, so a `true` is never wrong. The session chose the exact set of systems | record 5, `supports` and `supported` in `src/switch.zig`, and `zig build test-windows` |
+| A report to Zig. A separate agent drafts it outside the tree, and Camilo posts it himself | not in the tree yet |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -478,27 +485,20 @@ consumer.
 Camilo reads the numbers of the probe before step 1, so nothing of step 1 is built before he does.
 He reads the results of step 5 before a release.
 
-The package holds the build files, the root file with no public name, the check of the Zig
-version, and the lint on pepegrillo, as Camilo ruled on 2026-11-12.
+The package holds the build files, the root file with no public name and the check of the Zig
+version. Its lint on pepegrillo is built, as Camilo ruled on 2026-11-12.
 
 The context switch and its tests are built. The switch is the code that rotor's decision 22
-removed, with its three corrections of std's clobber lists. The records of the package hold each
-change since then:
+removed, with its three corrections of std's clobber lists. Records 2 to 5 hold each change since
+then, by the rulings above and by the choices that record 5 lists.
 
-| record | ruled | what it holds |
-|---|---|---|
-| 2 | 2026-11-12 | the fourth correction: the x86-64 list names `xmm0` to `xmm15` beside std's `zmm` names. What that does not cover |
-| 3 | 2026-11-13 | the fifth correction: the aarch64 list names `nzcv`. A copy of the switch on aarch64, and a call on x86-64, where the calling convention covers what the list cannot. The control registers belong to the thread |
-| 4 | 2026-11-13 | the first context of a new fiber: its argument is above the first stack pointer, and `main` starts with a return address of zero |
-| 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it. A sixth change, which is no correction: the aarch64 list names no register that LLVM reserves, `ffr` and `x18`. `supported` is false on Windows |
+Step 0's check names three platforms, and each ran the tests in Debug and in ReleaseSafe on
+2026-11-13. aarch64 macOS ran them on `mac` with `zig build test`. aarch64 Linux and x86-64 Linux
+ran them in Docker on `mac` with the Linux gate, x86-64 under Rosetta. The CI ran `zig build test`
+at `ded6989` on GitHub's runners of macOS on Apple silicon, Linux on arm64 and Linux on x86-64.
+Each job passed. That run is the first run of the tests on a real x86-64 processor.
 
-Step 0's check names three platforms. On 2026-11-13 each ran the tests in Debug and in
-ReleaseSafe: aarch64 macOS on `mac` with `zig build test`, and aarch64 Linux and x86-64 Linux in
-Docker on `mac` with the Linux gate, x86-64 under Rosetta. The CI ran `zig build test` at
-`ded6989` on GitHub's runners of macOS on Apple silicon, Linux on arm64 and Linux on x86-64. Each
-job passed. That run is the first run of the tests on a real x86-64 processor.
-
-The probe is built. `bench/README.md` lists each file of `bench/results/`. Each run there was on a
-busy machine, so none is a final number, and no run on a quiet `mac` exists. Record 5 gives one
-CI run on an AMD EPYC 9V74 at `ded6989`. Since record 5 the probe runs each form in three shapes,
-for the prediction of returns, and record 5 gives the prior of the session.
+The probe is built. Each run of `bench/results/` was on a busy machine, so none is a final number.
+Record 5 gives one CI run at `ded6989`, and the prior of the session on three shapes. It also
+gives the jump candidate of x86-64, whose tests passed under Rosetta. The next CI run runs them.
+Its numbers need a run of the job `probe` that a person starts.
