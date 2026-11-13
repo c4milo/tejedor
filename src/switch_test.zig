@@ -228,23 +228,6 @@ const Mail = struct {
     half_to_main: f64 = 0,
 };
 
-/// True where the clobber list of the switch covers the floating-point registers.
-///
-/// On x86_64 the list names `zmm0` to `zmm31`, as std's list does. A target with no AVX-512 has
-/// no such register, and the compiler then takes those names as no clobber. So the optimized
-/// build keeps a floating-point value in an `xmm` register across the switch, and the other
-/// context changes it. On 2026-11-12 the test below failed for that reason on x86_64 Linux in
-/// ReleaseSafe, and it passed with `xmm0` to `xmm15` in the list.
-///
-/// That is a fourth error of the clobber lists. The package takes the switch with the three
-/// corrections of rotor's decision 22 and no other change (rotor's decision 34, "Where the code
-/// starts"). So a fourth correction needs Camilo's word, and until then the test does not run
-/// where the error shows. The test runner reports it as a test that it did not run.
-const float_registers_covered = switch (builtin.cpu.arch) {
-    .x86_64 => std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f),
-    else => true,
-};
-
 /// The rounds of the test that passes a value each way.
 const mail_rounds = 64;
 
@@ -292,7 +275,6 @@ fn halving_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignme
 
 test "the main context and a fiber each keep a floating-point value across a switch" {
     if (!supported) return error.SkipZigTest;
-    if (!float_registers_covered) return error.SkipZigTest;
     var mail: Mail = .{};
     start_fiber(end_of(&stack), @intFromPtr(&mail), halving_fiber);
     var half_sum: f64 = 0;

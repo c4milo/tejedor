@@ -1,6 +1,6 @@
 //! The context switch of a fiber. It is std 0.16.0's `fiber.contextSwitch`, instruction for
-//! instruction, with three changes to the clobber lists. std's own function faults in a
-//! ReleaseSafe build. rotor's decision 22 found the three errors at its check 1:
+//! instruction, with four changes to the clobber lists. std's own function faults in a
+//! ReleaseSafe build. rotor's decision 22 found the first three errors at its check 1:
 //!
 //! 1. The register that carries the message is not in the list. It is `x1` on aarch64, and `rsi`
 //!    on x86_64. std names it as the input and as a clobber. The optimized build then never loads
@@ -10,19 +10,20 @@
 //! 3. On aarch64 Linux the list names `x18`. std leaves it out, because macOS reserves it. Linux
 //!    does not, and the optimized build kept a value in it across the switch.
 //!
-//! A fourth error is known, and this file does not correct it. On x86_64 the list names `zmm0` to
-//! `zmm31`. A target with no AVX-512 has no such register, and the compiler then takes those
-//! names as no clobber. So the optimized build keeps a floating-point value in an `xmm` register
-//! across the switch. `switch_test.zig` holds the test that shows it, at
-//! `float_registers_covered`. The package takes std's lists with the three changes above and no
-//! other (rotor's decision 34, "Where the code starts"), so a fourth needs Camilo's word.
+//! This package found a fourth error on 2026-11-12. Record 2 of `docs/decisions/` holds it, with
+//! Camilo's ruling:
+//!
+//! 4. On x86_64 the list names `xmm0` to `xmm15` beside `zmm0` to `zmm31`. std names the `zmm`
+//!    registers alone, and a processor with no AVX-512 has none. For such a target the optimized
+//!    build kept a floating-point value in an `xmm` register across the switch, and the other
+//!    context changed it.
 //!
 //! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
 //! this copy (rotor's decision 34, "Upkeep").
 //!
-//! `switch_context` is an ordinary function, and not `inline`. The clobber list names each
-//! register that the switch does not save, but for the fourth error above. So a caller keeps what
-//! it needs, whether the compiler calls the function or copies its body into the caller.
+//! `switch_context` is an ordinary function, and not `inline`. The clobber list must name each
+//! register that the switch does not save. Then a caller keeps what it needs, whether the
+//! compiler calls the function or copies its body into the caller.
 //!
 //! This file holds assembly, so `docs/hot-path-ledger.md` holds a row for each use.
 const std = @import("std");
@@ -286,6 +287,22 @@ pub fn switch_context(message: *const Switch) callconv(.c) void {
               .zmm29 = true,
               .zmm30 = true,
               .zmm31 = true,
+              .xmm0 = true,
+              .xmm1 = true,
+              .xmm2 = true,
+              .xmm3 = true,
+              .xmm4 = true,
+              .xmm5 = true,
+              .xmm6 = true,
+              .xmm7 = true,
+              .xmm8 = true,
+              .xmm9 = true,
+              .xmm10 = true,
+              .xmm11 = true,
+              .xmm12 = true,
+              .xmm13 = true,
+              .xmm14 = true,
+              .xmm15 = true,
               .fpsr = true,
               .fpcr = true,
               .mxcsr = true,

@@ -31,6 +31,8 @@ tejedor is not:
   library on a reactor". The note says that a program may hand its reactor to one package that
   ticks in its place.
   <https://github.com/c4milo/rotor/blob/128b8da/docs/using.md#a-library-on-a-reactor>
+- `docs/decisions/0002-the-switch-names-the-xmm-registers.md` is the fourth correction of the
+  clobber lists of the context switch. Read it before you change a list.
 - `docs/decisions/` holds the records of tejedor. Each later record takes the next number.
 
 If you are about to do something a record rejected, say so and stop. Do not reverse it in code.
@@ -89,6 +91,8 @@ These facts decide where a fault of a clobber list shows:
   calls the function. Only the copy lets a caller keep a value in a register across the switch.
 - On aarch64 macOS the compiler saves the callee-saved registers in pairs. So the function still
   saves a register that the list misses, when the list holds the other register of its pair.
+- On x86-64 the names `zmm0` to `zmm31` kept no value out of an `xmm` register, for a target with
+  no AVX-512 (record 2). The Linux gate builds for the baseline processor, which has none.
 
 The comptime check of `src/zig_version.zig` cannot fail inside a test. Its rule, `accepts`, has
 tests. `zig build test-compile-fail` proves `require`, the function that stops the compile. A
@@ -373,6 +377,7 @@ Camilo ruled on the package on 2026-11-12. The session asked each question with 
 |---|---|
 | pepegrillo gives the lint tools of the package, wired as rotor wires them (decision 34, "Ask before") | `tools/` and `build/tools.zig` |
 | The package has CI on GitHub's runners (decision 34, "Ask before"). The setup and step 0 go to `main` by a push. The package takes no pull requests, as rotor takes none | `.github/` |
+| The switch gets a fourth correction of the clobber lists: the x86-64 list names `xmm0` to `xmm15`. A record of the package states the departure from decision 34, and rotor's decision 34 gets a note | record 2. rotor does not hold the note yet |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -395,16 +400,14 @@ The package holds the build files, the root file with no public name, and the ch
 version.
 
 The context switch and its tests are built. The switch is the code that rotor's decision 22
-removed, with its three corrections of std's clobber lists and no other change.
+removed, with its three corrections of std's clobber lists. It also holds a fourth correction,
+of the package's own.
 
-**A fourth error of the clobber lists is known, and it is not corrected.** On x86-64 the list
-names `zmm0` to `zmm31`. A target with no AVX-512 has no such register, and the compiler then
-takes those names as no clobber. So an optimized build keeps a floating-point value in an `xmm`
-register across the switch, and the other context changes it. A test of 2026-11-12 shows it, and
-that test does not run on x86-64 with no AVX-512 (`float_registers_covered` in
-`src/switch_test.zig`). With `xmm0` to `xmm15` in the list, the test passes. Decision 34 takes the
-switch with "nothing but the names" changed, so the correction waits for Camilo's word. It needs
-his word before step 1: on x86-64, a fiber of step 1 can lose a floating-point value at each call
-that blocks.
+**The fourth correction is record 2, by Camilo's ruling of 2026-11-12.** On x86-64 the list of std
+names `zmm0` to `zmm31` alone. For a target with no AVX-512, an optimized build then kept a
+floating-point value in an `xmm` register across the switch. The other context changed it.
+The list of the package names `xmm0` to `xmm15` too. Decision 34 takes the switch with "nothing
+but the names" changed, and record 2 departs from that sentence. Record 2 also says what the
+correction does not cover.
 
 The lint on pepegrillo is built, as Camilo ruled on 2026-11-12.
