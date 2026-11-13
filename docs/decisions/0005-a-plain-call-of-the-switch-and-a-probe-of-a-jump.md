@@ -52,6 +52,10 @@ Camilo ruled on 2026-11-13. The first ruling is in his words: "Call, and probe a
      aarch64, and a copy on x86-64. Only the tests and the probe name it. The names
      `switch_copied`, `switch_called` and `switch_other_form` are a choice of the session (below).
 2. **The aarch64 list does not name `ffr`.** A record states the departure from std's list.
+3. **`supported` is false on Windows, so a `true` is never wrong.** The session chose the exact
+   set of systems, and states the rule in the doc comment of `supports` and in its test. The rule
+   reads the calling convention. The choices at the end of this record list a limit that it does
+   not read.
 
 The assembly of the switch does not change.
 
@@ -245,6 +249,81 @@ The session ran each mutation on 2026-11-13, on `mac`.
 | `x18` named on the systems of Apple | C |
 | `x18` named for a processor with the feature `reserve_x18` | C |
 
+## 3. `supported` is false on Windows
+
+### The error
+
+`supported` read the architecture alone, so it was true on Windows on x86-64 and on aarch64. The
+switch and the entry follow System V on x86-64 and AAPCS64 on aarch64. On x86-64 the C calling
+convention of Windows reads the first argument from `rcx`, and the entry puts it in `rdi`. On
+aarch64 Windows has a convention of its own, and it reserves `x18` for the thread.
+
+### The rule
+
+`supports(target)` holds the rule, and `supported` is `supports(&builtin.target)`. The rule reads
+the architecture, the width of a pointer, and the C calling convention that std gives the target
+(`std.Target.cCallingConvention`):
+
+| architecture | C calling convention of std | systems | `supports` |
+|---|---|---|---|
+| x86-64 | `x86_64_sysv` | Linux, the systems of Apple, the BSDs | true |
+| aarch64 | `aarch64_aapcs` | Linux, the BSDs, UEFI | true |
+| aarch64 | `aarch64_aapcs_darwin` | the systems of Apple | true |
+| x86-64 | `x86_64_win` | Windows and UEFI | false |
+| aarch64 | `aarch64_aapcs_win` | Windows | false |
+| x86-64 and aarch64 | any, with 32-bit pointers | Linux with the ABI `gnux32` or `muslx32` on x86-64, or `ilp32` on aarch64 | false |
+| x86-64 | `x86_64_x32` | none: std 0.16.0 gives it to `gnuabin32` and `muslabin32`, the names of the n32 ABI of MIPS | false |
+| each other architecture | any | any | false |
+
+So the ruling leaves out Windows on both architectures, and UEFI on x86-64, whose convention is
+that of Windows. UEFI on aarch64 has the convention of AAPCS64 in
+std, so the rule keeps it. No check of the package runs on UEFI.
+
+The rule also leaves out each ABI whose pointers are 32 bits, because the assembly reads and
+writes 64-bit words. std 0.16.0 gives `gnux32` and `muslx32` the convention `x86_64_sysv`, and Zig
+0.17.1 gives them `x86_64_x32`. So the rule reads the width of a pointer, and does not depend on
+that mapping. A review of 2026-11-13 found that a rule with no read of the width was true for
+`gnux32`, `muslx32` and `ilp32`. A compile of the tests for each of them then stopped at a layout
+assert of `src/switch.zig`. So a program could not read `supported` to fall back.
+
+### The checks
+
+- **"the switch is supported where the C calling convention is System V or AAPCS64"**, in
+  `src/switch.zig`. It calls `supports` for each row of the table above, with `builtin.target`
+  changed to the architecture, the system and the ABI of the row.
+- **"supported is the rule of supports for the target of the build, and false on Windows"**, in
+  `src/switch.zig`. One comptime assert holds `supported` equal to `supports(&builtin.target)`. A
+  second one holds `supported` false on Windows. `zig build test-windows` compiles that test for
+  Windows on x86-64 and on aarch64, and runs none. So that compile stops when `supported` does not
+  follow the rule, and when it is true on Windows. The test runner of std 0.16.0 does not compile
+  for UEFI, so no such compile runs for UEFI.
+
+### The mutations
+
+The session ran each mutation on 2026-11-13, on `mac`. Each cell gives the result of one build
+step. C is CAUGHT, and n is NOT CAUGHT. The rule is comptime logic, and the same in each mode, so
+the table gives no column for `zig build test-release`.
+
+| mutation | `zig build test-debug` | `zig build test-windows` |
+|---|---|---|
+| none | pass | pass |
+| `supports` is true for `x86_64_win`: Windows and UEFI on x86-64 | C | C |
+| `supports` is true for `aarch64_aapcs_win`: Windows on aarch64 | C | C |
+| `supports` does not read the width of a pointer | C | n |
+| `supports` does not read the architecture | C | n |
+| `supports` is true for `x86_64_x32` | n | n |
+| `supported` reads the architecture alone, as before | n | C |
+
+Each mutation but one is CAUGHT by one step at least:
+
+- The test of the rule catches a wrong rule on the host.
+- The compile for Windows catches a `supported` that is true on Windows, with the second assert.
+  On `mac` a `supported` that does not follow the rule is the same as the rule. So only that
+  compile catches it, with the first assert.
+- `x86_64_x32` is NOT CAUGHT, and that is expected. Only `gnuabin32` and `muslabin32` have that
+  convention in std 0.16.0, and their pointers are 32 bits. So the rule refuses them before it
+  reads the convention, and the mutant does the same thing as the rule.
+
 ## Alternatives that lost
 
 These alternatives are the session's list. The session wrote it after the ruling, and Camilo has
@@ -270,6 +349,16 @@ For the second ruling, these alternatives lost:
    protects nothing there either.
 3. **Remove `ffr`, with no check.** A later copy of std's list could bring the name back, and only
    a compile for a processor with SVE shows it.
+
+For the third ruling, the session chose the set of systems over these:
+
+1. **Windows and UEFI on both architectures.** UEFI on aarch64 has the convention of AAPCS64,
+   which the switch and the entry follow.
+2. **Linux and the systems of Apple alone, the systems that a check of the package runs on.** The
+   BSDs have the same conventions, and the ruling names Windows.
+3. **The convention alone, with no read of the width of a pointer.** `gnux32`, `muslx32` and
+   `ilp32` are then true in Zig 0.16.0, and the layout asserts stop the compile there.
+4. **The system alone, with no read of the ABI.** The same ABIs are then true.
 
 ## What departs from std and from rotor's decision 34
 
@@ -298,7 +387,19 @@ of rotor.
   `x18`. On Android, OpenHarmony and Fuchsia, `x18` points to the shadow call stack of the thread,
   for code built with one. The switch does not swap it, so the fibers of a thread share one
   shadow call stack. Camilo may rule that `supported` is false there.
+- **Code with a second stack for each thread.** C code built with a shadow call stack keeps its
+  return addresses on a second stack, and on aarch64 `x18` points to that stack. C code built
+  with SafeStack keeps a stack pointer in a thread-local word, at `%fs:0x18` on x86-64 Fuchsia.
+  The switch swaps neither. So a fiber must not switch while its stack holds a frame of such
+  code. The doc of `supported` states this limit.
+  Fuchsia builds its C code that way by default. Linux does so for C code that asks for it. A
+  review of 2026-11-13 showed the fault with a shadow call stack on aarch64 Linux. Camilo may rule
+  that `supported` is false on Fuchsia.
 - **The step `test-reserved`**, and its eight targets.
+- **The set of systems of `supports`.** UEFI on aarch64 is true, because std gives it AAPCS64. The
+  ABIs whose pointers are 32 bits are false. `supports` is private, and only the tests of
+  `src/switch.zig` call it.
+- **The step `test-windows`**, and its two compiles.
 
 ## Sources
 

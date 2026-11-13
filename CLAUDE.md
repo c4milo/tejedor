@@ -339,6 +339,10 @@ Ask Camilo before you do one of these:
   and each compile must fail with its message. One program hands the check of the Zig version
   another version. Two ask for the form of the switch that the other architecture uses: a copy on
   x86-64, and a call on aarch64 (record 5). `zig build test` runs this step too.
+- Check of Windows: `zig build test-windows` compiles the tests of `src/switch.zig` for Windows on
+  x86-64 and on aarch64, and runs none. Two comptime asserts of one test stop that compile. One
+  stops it when `supported` differs from the rule of `supports`, and one when `supported` is true
+  on Windows (record 5). `zig build test` runs this step too.
 - Check of the reserved registers: `zig build test-reserved` builds a copy of the switch for eight
   aarch64 targets where LLVM reserves a register. Each compile must print nothing. LLVM reserves
   `ffr` on a processor with SVE. It reserves `x18` on the systems of Apple, Android, OpenHarmony,
@@ -453,6 +457,7 @@ round. He asked first why the switch is never inlined on x86-64, and read the se
 |---|---|
 | "Call, and probe a jump": a plain call of `switch_context` is a call on x86-64 and a copy on aarch64, and `call_modifier` goes | record 5, `switch_context` in `src/switch.zig`, `src/switch_test_form.zig` and `tools/compile_fail/` |
 | The aarch64 list does not name `ffr`, a register that LLVM reserves. A record states the departure from std's list | record 5, the list in `src/switch.zig`, and `zig build test-reserved` |
+| `supported` is false on Windows, so a `true` is never wrong. The session chose the exact set of systems | record 5, `supports` and `supported` in `src/switch.zig`, and `zig build test-windows` |
 
 | step | what it holds | state |
 |---:|---|---|
@@ -483,7 +488,7 @@ change since then:
 | 2 | 2026-11-12 | the fourth correction: the x86-64 list names `xmm0` to `xmm15` beside std's `zmm` names. What that does not cover |
 | 3 | 2026-11-13 | the fifth correction: the aarch64 list names `nzcv`. A copy of the switch on aarch64, and a call on x86-64, where the calling convention covers what the list cannot. The control registers belong to the thread |
 | 4 | 2026-11-13 | the first context of a new fiber: its argument is above the first stack pointer, and `main` starts with a return address of zero |
-| 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it. A sixth change, which is no correction: the aarch64 list names no register that LLVM reserves, `ffr` and `x18` |
+| 5 | 2026-11-13, second round | the form of record 3 in the declaration of `switch_context`. `switch_other_form` has the other form, and only the tests and the probe name it. A sixth change, which is no correction: the aarch64 list names no register that LLVM reserves, `ffr` and `x18`. `supported` is false on Windows |
 
 Step 0's check names three platforms. This is what ran on 2026-11-13:
 

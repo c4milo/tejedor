@@ -118,13 +118,6 @@ fn end_of(memory: []u8) usize {
     return @intFromPtr(memory.ptr) + memory.len;
 }
 
-test "aarch64 and x86_64 each have a switch" {
-    switch (builtin.cpu.arch) {
-        .aarch64, .x86_64 => try testing.expect(supported),
-        else => try testing.expect(!supported),
-    }
-}
-
 /// It switches back two times, and no context switches to it a third time. So it never reaches
 /// its end.
 fn twice_fiber(argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn {

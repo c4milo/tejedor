@@ -23,12 +23,21 @@
 //! The step runs the compiler as a command, because a compile step of the build passes a warning.
 //! With an output path, the compiler builds the object each time, so a warning shows on each run
 //! of the step.
+//!
+//! Windows (record 5). `supported` is false on Windows. `zig build test-windows` compiles the tests
+//! of `src/switch.zig` for Windows on x86_64 and on aarch64, and runs none. Two comptime asserts of
+//! one test stop that compile. One stops it when `supported` differs from the rule of `supports`,
+//! and one when `supported` is true on Windows. No compile for UEFI is here: the test runner of std
+//! 0.16.0 does not compile for UEFI.
 const std = @import("std");
 const assert = std.debug.assert;
 const linux = @import("linux.zig");
 
 /// The file of the package that each program takes as its module `switch`.
 const switch_source = "src/switch.zig";
+
+/// The processors that `zig build test-windows` compiles the tests of `src/switch.zig` for.
+const windows_processors = [_]std.Target.Cpu.Arch{ .x86_64, .aarch64 };
 
 /// The program of `zig build test-reserved`.
 const reserved_source = "tools/switch_reserved.zig";
@@ -94,6 +103,29 @@ pub fn add(b: *std.Build, options: Options) void {
     );
     for (reserved_targets) |reserved| reserved_step.dependOn(reserved_check(b, reserved));
     options.test_step.dependOn(reserved_step);
+
+    const windows_step = b.step(
+        "test-windows",
+        "Compile the tests of the switch for Windows, and run none: supported must be false there",
+    );
+    for (windows_processors) |arch| windows_step.dependOn(windows_compile(b, arch));
+    options.test_step.dependOn(windows_step);
+}
+
+/// The tests of `src/switch.zig` for Windows on `arch`. Nothing asks for the executable, so the
+/// compiler checks the code and emits nothing.
+fn windows_compile(b: *std.Build, arch: std.Target.Cpu.Arch) *std.Build.Step {
+    const target = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .windows, .abi = .gnu });
+    assert(target.result.os.tag == .windows);
+    const compile = b.addTest(.{
+        .name = b.fmt("switch-windows-{s}", .{@tagName(arch)}),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(switch_source),
+            .target = target,
+            .optimize = .Debug,
+        }),
+    });
+    return &compile.step;
 }
 
 /// `zig build-obj` of the program for one target. Its standard error must be empty.

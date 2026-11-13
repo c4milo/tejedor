@@ -72,18 +72,41 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const fiber = std.Io.fiber;
 
-/// True on the two architectures that this file has a switch and an entry for. The fibers of std
-/// support a third, riscv64.
+/// True where this file has a switch and an entry for the target of the build, by the rule of
+/// `supports` (record 5). A true is never wrong about the calling convention. The rule leaves out
+/// each target whose calling convention the switch and the entry do not follow. The switch does
+/// not swap the shadow call stack in `x18`, or the stack of SafeStack. So do not switch a fiber
+/// while its stack holds a frame of code built with either of them (record 5).
+pub const supported = supports(&builtin.target);
+
+/// Whether this file has a switch and an entry for `target` (record 5). The switch and the entry
+/// follow System V on x86_64 and AAPCS64 on aarch64, and read and write 64-bit words. So the rule
+/// reads the architecture, the width of a pointer, and the C calling convention of the target. It
+/// is true for these three alone, with 64-bit pointers:
 ///
-/// It reads the architecture alone, and a caller checks the system too. The switch and the entry
-/// follow System V on x86_64 and AAPCS64 on aarch64. On x86_64 Windows this is true, and the
-/// entry is wrong. The entry puts the argument in `rdi`, and the C calling convention of that
-/// system reads `rcx`. The package as a whole does not build for Windows, because rotor builds
-/// for Linux and for the systems of Apple alone.
-pub const supported = switch (builtin.cpu.arch) {
-    .aarch64, .x86_64 => true,
-    else => false,
-};
+/// - x86_64 with `x86_64_sysv`: Linux, the systems of Apple and the BSDs.
+/// - aarch64 with `aarch64_aapcs`: Linux, the BSDs, and UEFI.
+/// - aarch64 with `aarch64_aapcs_darwin`: the systems of Apple.
+///
+/// It is false on Windows, on both architectures. On x86_64 the C calling convention of Windows
+/// reads the first argument from `rcx`, and the entry puts it in `rdi`. On aarch64 Windows has a
+/// convention of its own, and no check of the package runs there. It is false on UEFI of x86_64,
+/// which has the convention of Windows. It is false where a pointer is 32 bits: the x32 ABIs of
+/// Linux, `gnux32` and `muslx32`, and the ABI `ilp32` of aarch64. std 0.16.0 gives `gnux32` and
+/// `muslx32` the convention `x86_64_sysv`, so the rule reads the width of a pointer too. The fibers
+/// of std support a third architecture, riscv64, and this file has no switch for it.
+fn supports(target: *const std.Target) bool {
+    switch (target.cpu.arch) {
+        .aarch64, .x86_64 => {},
+        else => return false,
+    }
+    if (target.ptrBitWidth() != @bitSizeOf(u64)) return false;
+    const convention = target.cCallingConvention() orelse return false;
+    return switch (convention) {
+        .x86_64_sysv, .aarch64_aapcs, .aarch64_aapcs_darwin => true,
+        else => false,
+    };
+}
 
 pub const Context = fiber.Context;
 pub const Switch = fiber.Switch;
@@ -409,4 +432,53 @@ inline fn switch_copied(message: *const Switch) void {
             }),
         else => @compileError("no fiber switch for this architecture"),
     };
+}
+
+const testing = std.testing;
+
+/// `builtin.target` with another processor, system and ABI. `supports` reads no other field.
+fn target_of(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag, abi: std.Target.Abi) std.Target {
+    var target = builtin.target;
+    target.cpu.arch = arch;
+    target.os.tag = os;
+    target.abi = abi;
+    return target;
+}
+
+test "the switch is supported where the C calling convention is System V or AAPCS64" {
+    // Linux, the systems of Apple and FreeBSD on both architectures, and UEFI on aarch64.
+    try testing.expect(supports(&target_of(.x86_64, .linux, .musl)));
+    try testing.expect(supports(&target_of(.x86_64, .linux, .gnu)));
+    try testing.expect(supports(&target_of(.x86_64, .macos, .none)));
+    try testing.expect(supports(&target_of(.x86_64, .freebsd, .none)));
+    try testing.expect(supports(&target_of(.aarch64, .linux, .musl)));
+    try testing.expect(supports(&target_of(.aarch64, .macos, .none)));
+    try testing.expect(supports(&target_of(.aarch64, .freebsd, .none)));
+    try testing.expect(supports(&target_of(.aarch64, .uefi, .msvc)));
+    // Windows on both architectures, and UEFI on x86_64.
+    try testing.expect(!supports(&target_of(.x86_64, .windows, .gnu)));
+    try testing.expect(!supports(&target_of(.x86_64, .windows, .msvc)));
+    try testing.expect(!supports(&target_of(.aarch64, .windows, .gnu)));
+    try testing.expect(!supports(&target_of(.aarch64, .windows, .msvc)));
+    try testing.expect(!supports(&target_of(.x86_64, .uefi, .msvc)));
+    // The ABIs whose pointers are 32 bits: the x32 ABIs of Linux, and `ilp32` of aarch64.
+    try testing.expect(!supports(&target_of(.x86_64, .linux, .gnux32)));
+    try testing.expect(!supports(&target_of(.x86_64, .linux, .muslx32)));
+    try testing.expect(!supports(&target_of(.aarch64, .linux, .ilp32)));
+    // `gnuabin32` is a name of the n32 ABI of MIPS. std 0.16.0 gives it the convention
+    // `x86_64_x32` on x86_64.
+    try testing.expect(!supports(&target_of(.x86_64, .linux, .gnuabin32)));
+    // The architectures that this file has no switch for.
+    try testing.expect(!supports(&target_of(.riscv64, .linux, .musl)));
+    try testing.expect(!supports(&target_of(.x86, .linux, .musl)));
+    try testing.expect(!supports(&target_of(.aarch64_be, .linux, .musl)));
+}
+
+test "supported is the rule of supports for the target of the build, and false on Windows" {
+    // The build compiles this test for Windows too, and runs none there (build/switch_checks.zig).
+    // The first comptime assert stops that compile when `supported` does not follow the rule. The
+    // second stops it when `supported` is true on Windows, whatever the rule says.
+    comptime assert(supported == supports(&builtin.target));
+    if (builtin.os.tag == .windows) comptime assert(!supported);
+    try testing.expectEqual(supports(&builtin.target), supported);
 }
