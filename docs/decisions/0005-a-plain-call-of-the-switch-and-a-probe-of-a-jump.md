@@ -333,6 +333,36 @@ Each mutation but one is CAUGHT by one step at least:
   convention in std 0.16.0, and their pointers are 32 bits. So the rule refuses them before it
   reads the convention, and the mutant does the same thing as the rule.
 
+### Note of 2026-11-14: `supported` is false on Fuchsia
+
+Camilo ruled on 2026-11-14 that `supported` is false on Fuchsia, on both architectures. By
+default Fuchsia builds its C code with a shadow call stack, in `x18` on aarch64, and with
+SafeStack, which keeps a stack pointer at `%fs:0x18` on x86-64. The switch swaps neither. The doc
+of `supported` keeps the limit for C code that asks for either on another system.
+
+`supports` returns false for Fuchsia before it reads the convention, and its test holds Fuchsia on
+both architectures. The test runner of std 0.16.0 does not compile for Fuchsia. So a comptime
+assert outside the tests of `src/switch.zig` holds `supported` false there. `zig build
+test-fuchsia` compiles that file as an object for Fuchsia on x86-64 and on aarch64, and emits
+nothing. `zig build test-reserved` compiles it for aarch64 Fuchsia too.
+
+The session ran each mutation on 2026-11-14, on `mac`. The rule is comptime logic, and the same in
+each mode.
+
+| mutation | `zig build test-debug` | `zig build test-fuchsia` | `zig build test-reserved` |
+|---|---|---|---|
+| none | pass | pass | pass |
+| `supports` does not read Fuchsia | C | C | C |
+| `supports` reads Fuchsia on aarch64 alone | C | C | n |
+| `supports` reads Fuchsia on x86-64 alone | C | C | C |
+| `supported` is true on Fuchsia, whatever the rule says | n | C | C |
+| the same, with no comptime assert | - | n | - |
+
+- On `mac` a `supported` that differs from the rule on Fuchsia alone is the same as the rule. So
+  only a compile for Fuchsia catches it, with the comptime assert.
+- With no assert, no step catches that mutation. That is expected: the assert is the check.
+- `test-reserved` compiles for aarch64 Fuchsia alone, so it does not see x86-64.
+
 ## The probe
 
 The part of this record on the probe is in a file of its own, named after this one:

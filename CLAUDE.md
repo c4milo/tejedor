@@ -337,7 +337,7 @@ Ask Camilo before you do one of these:
   "Upkeep"). It also compiles the unit tests of the package and of the bench programs for Linux on
   aarch64 and on x86-64, and runs none of them. So a change that does not compile or assemble for
   Linux fails on a Mac. It runs the unit tests of the bench programs in both modes, and it compiles
-  the probe for the host and for Linux. It runs the three checks below that are compiles.
+  the probe for the host and for Linux. It runs the four checks below that are compiles.
 - One mode alone: `zig build test-debug` and `zig build test-release`.
 - Compile-fail check: `zig build test-compile-fail` builds each program of `tools/compile_fail/`,
   and each compile must fail with its message. One program hands the check of the Zig version
@@ -347,6 +347,10 @@ Ask Camilo before you do one of these:
   x86-64 and on aarch64, and runs none. Two comptime asserts of one test stop that compile. One
   stops it when `supported` differs from the rule of `supports`, and one when `supported` is true
   on Windows (record 5). `zig build test` runs this step too.
+- Check of Fuchsia: `zig build test-fuchsia` compiles `src/switch.zig` as an object for Fuchsia on
+  x86-64 and on aarch64, and emits nothing. The test runner of std 0.16.0 does not compile for
+  Fuchsia, so a comptime assert outside the tests of that file stops the compile when `supported`
+  is true on Fuchsia (record 5). `zig build test` runs this step too.
 - Check of the reserved registers: `zig build test-reserved` builds a copy of the switch for eight
   aarch64 targets where LLVM reserves a register. Each compile must print nothing. LLVM reserves
   `ffr` on a processor with SVE. It reserves `x18` on the systems of Apple, Android, OpenHarmony,

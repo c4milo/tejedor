@@ -29,6 +29,12 @@
 //! one test stop that compile. One stops it when `supported` differs from the rule of `supports`,
 //! and one when `supported` is true on Windows. No compile for UEFI is here: the test runner of std
 //! 0.16.0 does not compile for UEFI.
+//!
+//! Fuchsia (record 5). `supported` is false on Fuchsia too. The test runner of std 0.16.0 does not
+//! compile for Fuchsia either, so a comptime assert outside the tests of `src/switch.zig` holds
+//! the rule. `zig build test-fuchsia` compiles that file as the root of an object for Fuchsia on
+//! x86_64 and on aarch64, and emits nothing. The assert stops each compile when `supported` is
+//! true there.
 const std = @import("std");
 const assert = std.debug.assert;
 const linux = @import("linux.zig");
@@ -38,6 +44,9 @@ const switch_source = "src/switch.zig";
 
 /// The processors that `zig build test-windows` compiles the tests of `src/switch.zig` for.
 const windows_processors = [_]std.Target.Cpu.Arch{ .x86_64, .aarch64 };
+
+/// The processors that `zig build test-fuchsia` compiles `src/switch.zig` for.
+const fuchsia_processors = [_]std.Target.Cpu.Arch{ .x86_64, .aarch64 };
 
 /// The program of `zig build test-reserved`.
 const reserved_source = "tools/switch_reserved.zig";
@@ -92,7 +101,8 @@ pub const Options = struct {
     test_step: *std.Build.Step,
 };
 
-/// Adds each check of this file to its step, and the step `test-reserved`.
+/// Adds each check of this file to its step, and the steps `test-reserved`, `test-windows` and
+/// `test-fuchsia`.
 pub fn add(b: *std.Build, options: Options) void {
     for (form_programs) |program| {
         options.compile_fail_step.dependOn(compile_fail(b, program));
@@ -110,6 +120,30 @@ pub fn add(b: *std.Build, options: Options) void {
     );
     for (windows_processors) |arch| windows_step.dependOn(windows_compile(b, arch));
     options.test_step.dependOn(windows_step);
+
+    const fuchsia_step = b.step(
+        "test-fuchsia",
+        "Compile the switch for Fuchsia, and run nothing: supported must be false there",
+    );
+    for (fuchsia_processors) |arch| fuchsia_step.dependOn(fuchsia_compile(b, arch));
+    options.test_step.dependOn(fuchsia_step);
+}
+
+/// `src/switch.zig` as the root of an object for Fuchsia on `arch`. Nothing asks for the object,
+/// so the compiler checks the code and emits nothing. A comptime assert of that file stops the
+/// compile when `supported` is true on Fuchsia.
+fn fuchsia_compile(b: *std.Build, arch: std.Target.Cpu.Arch) *std.Build.Step {
+    const target = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .fuchsia, .abi = .none });
+    assert(target.result.os.tag == .fuchsia);
+    const compile = b.addObject(.{
+        .name = b.fmt("switch-fuchsia-{s}", .{@tagName(arch)}),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(switch_source),
+            .target = target,
+            .optimize = .Debug,
+        }),
+    });
+    return &compile.step;
 }
 
 /// The tests of `src/switch.zig` for Windows on `arch`. Nothing asks for the executable, so the

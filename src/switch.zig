@@ -52,9 +52,8 @@
 //! Zig refuses the other form at compile time: a call with `.always_inline` of the x86_64 function,
 //! and a call with `.never_inline` of the aarch64 one. `switch_other_form` gives the other form of
 //! an architecture to the tests and the probe. The lint rule `switch-form` refuses a reference to
-//! that name in each other file under `src/`. Its header lists the references that it cannot see.
-//! On x86_64 the probe also measures a candidate, `bench/jump_switch.zig`, which the package does
-//! not use (record 5).
+//! that name in each other file under `src/`. On x86_64 the probe also measures a candidate,
+//! `bench/jump_switch.zig`, which the package does not use (record 5).
 //!
 //! The switch saves no control register: not FPCR on aarch64, and not MXCSR or the x87 control
 //! word on x86_64. So the rounding mode and the exception masks belong to the thread, and not to
@@ -82,16 +81,21 @@ const assert = std.debug.assert;
 const fiber = std.Io.fiber;
 
 /// True where this file has a switch and an entry for the target of the build, by the rule of
-/// `supports` (record 5). A true is never wrong about the calling convention. The rule leaves out
-/// each target whose calling convention the switch and the entry do not follow. The switch does
-/// not swap the shadow call stack in `x18`, or the stack of SafeStack. So do not switch a fiber
-/// while its stack holds a frame of code built with either of them (record 5).
+/// `supports` (record 5). A true is never wrong about the calling convention. The switch does not
+/// swap the shadow call stack in `x18`, or the stack of SafeStack. So `supported` is false on
+/// Fuchsia, which builds its C code with both. Elsewhere, do not switch a fiber while its stack
+/// holds a frame of code built with either of them (record 5).
 pub const supported = supports(&builtin.target);
+
+// Not in a test: std 0.16.0's test runner does not compile for Fuchsia (`zig build test-fuchsia`).
+comptime {
+    if (builtin.os.tag == .fuchsia) assert(!supported);
+}
 
 /// Whether this file has a switch and an entry for `target` (record 5). The switch and the entry
 /// follow System V on x86_64 and AAPCS64 on aarch64, and read and write 64-bit words. So the rule
 /// reads the architecture, the width of a pointer, and the C calling convention of the target. It
-/// is true for these three alone, with 64-bit pointers:
+/// is true for these three alone, with 64-bit pointers, and on no Fuchsia:
 ///
 /// - x86_64 with `x86_64_sysv`: Linux, the systems of Apple and the BSDs.
 /// - aarch64 with `aarch64_aapcs`: Linux, the BSDs, and UEFI.
@@ -99,16 +103,17 @@ pub const supported = supports(&builtin.target);
 ///
 /// It is false on Windows, on both architectures. On x86_64 the C calling convention of Windows
 /// reads the first argument from `rcx`, and the entry puts it in `rdi`. On aarch64 Windows has a
-/// convention of its own, and no check of the package runs there. It is false on UEFI of x86_64,
-/// which has the convention of Windows. It is false where a pointer is 32 bits: the x32 ABIs of
-/// Linux, `gnux32` and `muslx32`, and the ABI `ilp32` of aarch64. std 0.16.0 gives `gnux32` and
-/// `muslx32` the convention `x86_64_sysv`, so the rule reads the width of a pointer too. The fibers
-/// of std support a third architecture, riscv64, and this file has no switch for it.
+/// convention of its own. It is false on UEFI of x86_64, which has the convention of Windows. It
+/// is false on Fuchsia, whose C code keeps a shadow call stack in `x18` on aarch64, and a SafeStack
+/// pointer at `%fs:0x18` on x86_64. It is false where a pointer is 32 bits: `gnux32`, `muslx32`
+/// and `ilp32`. std 0.16.0 gives `gnux32` and `muslx32` the convention `x86_64_sysv`, so the rule
+/// reads the width of a pointer too. This file has no switch for riscv64, which std's fibers have.
 fn supports(target: *const std.Target) bool {
     switch (target.cpu.arch) {
         .aarch64, .x86_64 => {},
         else => return false,
     }
+    if (target.os.tag == .fuchsia) return false;
     if (target.ptrBitWidth() != @bitSizeOf(u64)) return false;
     const convention = target.cCallingConvention() orelse return false;
     return switch (convention) {
@@ -464,12 +469,14 @@ test "the switch is supported where the C calling convention is System V or AAPC
     try testing.expect(supports(&target_of(.aarch64, .macos, .none)));
     try testing.expect(supports(&target_of(.aarch64, .freebsd, .none)));
     try testing.expect(supports(&target_of(.aarch64, .uefi, .msvc)));
-    // Windows on both architectures, and UEFI on x86_64.
+    // Windows and Fuchsia on both architectures, and UEFI on x86_64.
     try testing.expect(!supports(&target_of(.x86_64, .windows, .gnu)));
     try testing.expect(!supports(&target_of(.x86_64, .windows, .msvc)));
     try testing.expect(!supports(&target_of(.aarch64, .windows, .gnu)));
     try testing.expect(!supports(&target_of(.aarch64, .windows, .msvc)));
     try testing.expect(!supports(&target_of(.x86_64, .uefi, .msvc)));
+    try testing.expect(!supports(&target_of(.x86_64, .fuchsia, .none)));
+    try testing.expect(!supports(&target_of(.aarch64, .fuchsia, .none)));
     // The ABIs whose pointers are 32 bits: the x32 ABIs of Linux, and `ilp32` of aarch64.
     try testing.expect(!supports(&target_of(.x86_64, .linux, .gnux32)));
     try testing.expect(!supports(&target_of(.x86_64, .linux, .muslx32)));

@@ -28,8 +28,8 @@ under "Where the work stands".
 | System and processor | macOS on aarch64, Linux on aarch64, or Linux on x86-64 |
 
 Those are the three platforms that step 0 of the build order checks. No check covers macOS on
-x86-64. `supported` of the context switch is false on Windows, on UEFI on x86-64, and where a
-pointer is 32 bits. The switch follows other calling conventions. The
+x86-64. `supported` of the context switch is false on Windows, on Fuchsia, on UEFI on x86-64,
+and where a pointer is 32 bits. The
 [fifth decision record](docs/decisions/0005-a-plain-call-of-the-switch-and-a-probe-of-a-jump.md)
 gives the rule.
 
