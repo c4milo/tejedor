@@ -38,8 +38,9 @@ The probe measures two forms of the switch (record 3), and on x86-64 a candidate
 | the jump candidate | a call of `jump_switch` of `jump_switch.zig`, which pushes the callee-saved registers and resumes with a jump | no platform: a candidate of x86-64 |
 
 The probe gets the form of the package with a plain call of `switch_context`, as the package does.
-It gets the other form with a plain call of `switch_other_form`: a call on aarch64, and a copy on
-x86-64 (record 5).
+On aarch64 it gets the other form, a call, with a plain call of `switch_other_form` (record 5). On
+x86-64 it gets the copy from `std_switch_x86_64.zig`. That file holds std's switch with the list of
+the package, as a copy and as a call, and the tests of both forms.
 
 ### The three shapes
 
@@ -159,6 +160,8 @@ of `results/`.
 | `switch_probe_forms.zig` | the forms and the shapes that the probe measures, and the run of each row |
 | `switch_probe_report.zig` | the table of the numbers in the report |
 | `jump_switch.zig` | the jump candidate of record 5 for x86-64, and its tests |
+| `std_switch_x86_64.zig` | std's switch for x86-64 with the list of the package, as a copy and as a call, with the first context of record 4 |
+| `std_switch_x86_64_test.zig` | the tests of `std_switch_x86_64.zig`, which run on x86-64 alone |
 | `measure.zig` | the method that times a probe: batches, the median, the p99, and two loops back to back |
 | `machine.zig` | the machine and the load average, for the report |
 | `results/` | the reports of the runs that the steps above recorded, and of the CI runs of 2026-11-14. A file can hold several runs. Record 5 holds the first CI run |

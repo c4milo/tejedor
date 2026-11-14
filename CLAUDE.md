@@ -300,7 +300,9 @@ rotor on 2026-09-22.
   module `tejedor` exports no name for a probe.
 - `bench/switch_probe.zig` is the entry of the probe. `bench/switch_probe_forms.zig` and
   `bench/switch_probe_report.zig` are its pieces. `bench/jump_switch.zig` holds the jump candidate
-  of record 5, for x86-64. No file of the library imports it.
+  of record 5, for x86-64. `bench/std_switch_x86_64.zig` holds std's switch for x86-64 with the
+  list of the package, as a copy and as a call, and `bench/std_switch_x86_64_test.zig` its tests.
+  No file of the library imports them.
 - `tools/` holds the developer tools. `zig build lint` runs them, and the build links no part of
   them into the package. The rules come from pepegrillo, a lazy package in `build.zig.zon` that
   only the root build asks for. `tools/` holds tejedor's configuration of each rule. rotor stays
@@ -360,11 +362,12 @@ Ask Camilo before you do one of these:
   run. `zig build test --summary all` counts them for each step, and the Linux gate prints a
   `SKIP` line for each one. The test of `src/switch_test_entry.zig` makes system calls of Linux,
   so it does not run on macOS (record 4). The four tests of the jump candidate in
-  `bench/jump_switch.zig` run on x86-64 alone (record 5).
+  `bench/jump_switch.zig` and the five tests of `bench/std_switch_x86_64_test.zig` run on x86-64
+  alone (record 5).
 - Linux gate: `zig build test-linux && bash tools/linux_test.sh`. The build step compiles the unit
   tests of the package and of the bench programs for Linux on aarch64 and on x86-64, in Debug and
-  in ReleaseSafe, into `zig-out/linux/`. The bench programs are in the gate because the tests of
-  the jump candidate run on x86-64 alone (record 5).
+  in ReleaseSafe, into `zig-out/linux/`. The bench programs are in the gate because some of their
+  tests run on x86-64 alone (record 5).
   It runs none of them. The script runs each one in a Docker container of its own, and stops at
   the first failure.
   - `bash tools/linux_test.sh linux/arm64` runs the executables of one platform alone.

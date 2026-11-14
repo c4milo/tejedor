@@ -197,4 +197,5 @@ test {
     _ = probe_forms;
     _ = probe_report;
     _ = @import("jump_switch.zig");
+    _ = @import("std_switch_x86_64.zig");
 }

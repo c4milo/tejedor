@@ -8,8 +8,8 @@
 //!   x86_64.
 //! - `jump`: each caller calls the candidate of `jump_switch.zig`, on x86_64 alone (record 5).
 //!
-//! The probe gets the form of the package with a plain call of `switch_context`, as the package
-//! does. It gets the other form with a plain call of `switch_other_form` (record 5).
+//! The probe gets the form of the package with a plain call of `switch_context`. It gets the other
+//! form from `switch_other_form` on aarch64 (record 5), and from `std_switch_x86_64.zig` on x86_64.
 //!
 //! A shape is where the switch is:
 //!
@@ -17,8 +17,7 @@
 //! - `one_function`: in one function that both sides call. It is never inlined, and it returns
 //!   after the switch.
 //! - `two_functions`: in a function of each side, which is never inlined and returns after the
-//!   switch. The two functions differ by one `nop`, so an optimized build cannot merge them into
-//!   one.
+//!   switch. The two differ by one `nop`, so an optimized build cannot merge them into one.
 //!
 //! The shape matters for the prediction of a return. A processor predicts each return from a stack
 //! of the return addresses of the calls that it saw. After a switch, a return can go to an address
@@ -29,6 +28,7 @@ const builtin = @import("builtin");
 const measure = @import("measure.zig");
 const switching = @import("switch");
 const jumping = @import("jump_switch.zig");
+const std_switch = @import("std_switch_x86_64.zig");
 
 pub const Form = enum {
     copy,
@@ -156,6 +156,8 @@ fn Way(comptime form: Form) type {
             inline fn switch_once(message: *const Switch) void {
                 if (form == package_form) {
                     switching.switch_context(message);
+                } else if (builtin.cpu.arch == .x86_64) {
+                    std_switch.switch_copied(message);
                 } else {
                     switching.switch_other_form(message);
                 }

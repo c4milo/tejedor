@@ -25,6 +25,10 @@ tests run that code, and no file of the library imports it. So it has no row.
 x86-64. Only the probe and its tests call it, and no file of the library imports it. So it has no
 row either. If Camilo rules that it replaces the call, it moves to `src/` with a row.
 
+`bench/std_switch_x86_64.zig` holds std's switch for x86-64 with the list of the package: inline
+assembly, a forced inline and a naked entry. Its test file holds naked functions too. Only the
+probe and the tests run that code, and no file of the library imports it. So it has no row.
+
 ## The rows
 
 | id | file and function | technique | why plain Zig cannot do it | what checks it | date |
