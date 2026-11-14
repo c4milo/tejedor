@@ -426,11 +426,11 @@ Ask Camilo before you do one of these:
     pinned Zig version.
   - switch-form refuses a reference to `switch_other_form` under `src/`, but in `src/switch.zig`
     and in the test files (record 5). Its header lists the references that it cannot see. The
-    rule is a choice of the session, and Camilo has not ruled it.
+    rule is a choice of the session, and Camilo accepted it on 2026-11-14.
   - static-alignment does not read `docs/zig-report/`, the attachments of the report to Zig.
     They are the programs that ran, and the build compiles none of them. The complexity score,
     the file-length rule and the format check do not read them either (record 5). The exemption
-    is a choice of the session, and Camilo has not ruled it.
+    is a choice of the session, and Camilo accepted it on 2026-11-14.
   - A commit that adds a directory of sources adds it to the lists of `build/tools.zig`.
 - Tools: `zig build test-tools` runs the tests of the tools alone. Measure a mutation of the
   configuration of a rule against it.

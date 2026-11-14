@@ -3,7 +3,8 @@
 Status: **accepted**. Camilo ruled on 2026-11-13, in a second round that day, after the first CI
 run of the probe on a real x86-64 processor. The session wrote this record the same day, with the
 changes. The rulings are Camilo's. The reasons against each alternative below are the session's,
-and Camilo has not read them.
+and Camilo has not read them. On 2026-11-14 Camilo accepted the choices of the session that this
+record lists ("Choices of the session"), and ruled that they stay as built.
 
 ## The question
 
@@ -431,42 +432,61 @@ For the third ruling, the session chose the set of systems over these:
 Row L3 of `docs/hot-path-ledger.md` holds the forced inline of aarch64. The candidate is under
 `bench/`, and no file of the library imports it, so it has no row, as the tests have none. If
 Camilo rules that it replaces the call, it moves to `src/` with a row. The package changes no file
-of rotor.
+of rotor. Note of 2026-11-14: Camilo ruled it, and it moved to `src/switch_jump.zig`, with rows L4
+to L6 (record 6).
 
-## Choices of the session that Camilo has not ruled
+## Choices of the session
+
+The session made each choice of this list, and Camilo did not rule it on 2026-11-13. On
+2026-11-14 he ruled that each one stays as built: each is **accepted by Camilo on 2026-11-14**.
+Where his ruling of that day on the jump changed a choice, a note under it says how (record 6).
 
 - **The names.** `switch_other_form` is public in `src/switch.zig`, and `switch_called` and
   `switch_copied` are private. `switch_out_of_line` is public in
   `src/switch_test.zig`. The probe takes `src/switch.zig` as a module of its own
   (`build/bench.zig`), so it needs a public name. The module `tejedor` exports no name of
-  `src/switch.zig`.
-- **The lint rule `switch-form`**, which keeps `switch_other_form` out of the package.
+  `src/switch.zig`. Since record 6, `switch_other_form` is the call of aarch64 alone, and a
+  reference to it does not compile on x86-64. `switch_called` and `switch_copied` hold the switch
+  of aarch64 alone, and `bench/std_switch_x86_64.zig` holds std's switch of x86-64 under the same
+  names. On x86-64 `switch_out_of_line` is the jump.
+- **The lint rule `switch-form`**, which keeps `switch_other_form` out of the package. Since
+  record 6, `switch_other_form` does not compile on x86-64, so the rule matters on aarch64 alone.
+  Its reason is now that only the copy keeps the proof of the aarch64 list (record 3). Section 1
+  gives its reason before record 6: a copy on x86-64, which loses an `f80` value.
 - **`x18` where LLVM reserves it.** Ruling 2 names `ffr`, and the session applied its reason to
   `x18`. On Android, OpenHarmony and Fuchsia, `x18` points to the shadow call stack of the thread,
   for code built with one. The switch does not swap it, so the fibers of a thread share one
-  shadow call stack. Camilo may rule that `supported` is false there.
+  shadow call stack. Camilo ruled on 2026-11-14 that `supported` is false on Fuchsia, on both
+  architectures (the note of section 3).
 - **Code with a second stack for each thread.** C code built with a shadow call stack keeps its
   return addresses on a second stack, and on aarch64 `x18` points to that stack. C code built
   with SafeStack keeps a stack pointer in a thread-local word, at `%fs:0x18` on x86-64 Fuchsia.
   The switch swaps neither. So a fiber must not switch while its stack holds a frame of such
   code. The doc of `supported` states this limit.
   Fuchsia builds its C code that way by default. Linux does so for C code that asks for it. A
-  review of 2026-11-13 showed the fault with a shadow call stack on aarch64 Linux. Camilo may rule
-  that `supported` is false on Fuchsia.
+  review of 2026-11-13 showed the fault with a shadow call stack on aarch64 Linux. Since the
+  ruling of 2026-11-14, `supported` is false on Fuchsia, and the doc keeps the limit for the other
+  systems.
 - **The step `test-reserved`**, and its eight targets.
 - **The set of systems of `supports`.** UEFI on aarch64 is true, because std gives it AAPCS64. The
   ABIs whose pointers are 32 bits are false. `supports` is private, and only the tests of
-  `src/switch.zig` call it.
+  `src/switch.zig` call it. Since 2026-11-14 Fuchsia is false too, by ruling.
 - **The step `test-windows`**, and its two compiles.
 - **`bench/switch_probe_forms.zig` is not a named file of `docs/hot-path-ledger.md`.** It holds
   three blocks of assembly that keep the form of a shape. Its tests read a frame through a raw
   pointer. No file of the library imports it, so the ledger exempts it, as it exempts the tests.
+  Since record 6 that read is `caller_of` in `bench/switch_probe_ways.zig`, which the ledger
+  exempts for the same reason.
 - **`bench/jump_switch.zig` is not a named file of `docs/hot-path-ledger.md`.** It holds a naked
   function in assembly, under `bench/` alone. The ledger exempts it for the reason that it exempts
-  the tests: no file of the library imports it. Camilo has not ruled the exemption.
+  the tests: no file of the library imports it. This exemption ended on 2026-11-14: the jump moved
+  to `src/switch_jump.zig`, a named file of the ledger, and `bench/jump_switch.zig` went (record
+  6).
 - **The bench tests in the Linux gate**, which the candidate needs, because its tests run on
-  x86-64 alone.
-- **The three shapes of the probe**, and the test of the form of each row.
+  x86-64 alone. Since record 6 the tests of `bench/std_switch_x86_64_test.zig` need them, for the
+  same reason.
+- **The three shapes of the probe**, and the test of the form of each row. Since record 6 the
+  probe on x86-64 measures the jump, std's call and std's copy in each shape.
 - **The lint rule static-alignment does not read `docs/zig-report/`**, which holds the
   attachments of the report to Zig. Those are the programs that ran, and the build compiles none.
   The complexity score, the file-length rule and the format check do not read them either.
