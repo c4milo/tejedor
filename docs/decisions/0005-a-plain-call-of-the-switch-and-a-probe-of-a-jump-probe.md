@@ -3,6 +3,13 @@
 This file is a piece of record 5, [`0005-a-plain-call-of-the-switch-and-a-probe-of-a-jump.md`](0005-a-plain-call-of-the-switch-and-a-probe-of-a-jump.md). The record passed 500 lines, so its
 part on the probe is here. Its status and its rulings are those of the record.
 
+Note of 2026-11-14: the jump candidate left `bench/jump_switch.zig`. It is the switch of x86-64 in
+`src/switch_jump.zig` (record 6), and its tests and mutations moved with it. The probe on x86-64
+now compares the jump with std's call and std's copy of `bench/std_switch_x86_64.zig`. Three CI
+runs measured the candidate, and record 6 reads them against the prior below. The test of the form
+of a row now also reads the address to resume at of the main context of the jump. The fiber reads
+it while the main context waits. So the part "The tests" below gives the state before record 6.
+
 ## A prior to test: the prediction of returns
 
 The session reasoned this part, and it is no measurement. Camilo has not read it.

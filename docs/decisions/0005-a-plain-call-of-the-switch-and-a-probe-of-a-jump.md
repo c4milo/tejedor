@@ -40,7 +40,12 @@ clobber type names them, and the list does not hold them. The second bullet abov
 
 Note of 2026-11-14: three more CI runs of the probe, at `ba1daf0`, are in
 `bench/results/switch-github-2026-11-14.md`. Each ran on another runner, with another x86-64
-processor, and each holds the rows of the jump candidate.
+processor, and each holds the rows of the jump candidate. Camilo read them, and ruled that the jump
+replaces the call on x86-64 (record 6). So on x86-64 `switch_context` is the jump. The x86-64 parts
+of `switch_called` and `switch_copied`, and the x86-64 list, left `src/switch.zig`.
+`bench/std_switch_x86_64.zig` holds std's switch of x86-64 under the same names. `switch_other_form`
+is the call of aarch64, and it does not compile on x86-64. The parts of this record that describe
+the call on x86-64, and the candidate under `bench/`, give the state before record 6.
 
 ## The decision
 

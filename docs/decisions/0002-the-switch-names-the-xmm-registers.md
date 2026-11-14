@@ -8,6 +8,12 @@ Note of 2026-11-13, second round: record 5 removes `ffr` from the aarch64 list. 
 switch a function that is never inlined on x86-64, by its declaration. The x86-64 list of this
 record does not change.
 
+Note of 2026-11-14: record 6 makes the jump, a function in assembly with no clobber list, the
+switch of x86-64. So std's switch of x86-64 and the list of this record left `src/switch.zig`.
+`bench/std_switch_x86_64.zig` holds them, for the probe to compare with the jump. Its test of 32
+values runs a copy of that switch, and proves the sixteen names again in ReleaseSafe. The parts
+below that name `src/switch.zig` for x86-64 give the state before record 6.
+
 ## The decision
 
 The clobber list of `switch_context` for x86-64 names `xmm0` to `xmm15`, beside the `zmm0` to

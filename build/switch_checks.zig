@@ -1,11 +1,16 @@
 //! The checks of the context switch that a test cannot make, because each one is a compile.
 //! `build.zig` stays short, so this file holds that part of the build.
 //!
-//! The form of `switch_context` (record 5). On x86_64 it is a function that is never inlined, and
-//! on aarch64 it is an inline function. Zig refuses a call that asks for the other form. So each
-//! program below asks for the other form, and its compile must fail with the error of Zig:
+//! The form of `switch_context` (records 5 and 6). On aarch64 it is an inline function. On x86_64
+//! it is the address of the jump, a naked function, with the C calling convention. Zig refuses a
+//! call that asks for the other form. So each program below asks for the other form, and its
+//! compile must fail with the message of Zig:
 //!
-//! - `tools/compile_fail/switch_copy_on_x86_64.zig` asks for a copy on x86_64 Linux.
+//! - `tools/compile_fail/switch_copy_on_x86_64.zig` asks for a copy on x86_64 Linux. There
+//!   `switch_context` is a `@ptrCast` of the naked jump to a function type of the C calling
+//!   convention. Zig cannot resolve the function behind a cast to another function type at compile
+//!   time, so it refuses an inline call through it. A pointer with no cast to a plain function
+//!   gets no such refusal.
 //! - `tools/compile_fail/switch_call_on_aarch64.zig` asks for a call on aarch64 Linux.
 //!
 //! `zig build test-compile-fail` builds both, beside the program of the check of the Zig version.
@@ -71,7 +76,8 @@ const reserved_targets = [_]Reserved{
 };
 
 /// One program that must not compile, the processor that it is built for, and the end of the
-/// error line that Zig must print. The build system requires that an error line ends with it.
+/// line that Zig must print, an error or a note. The build system requires that a line of the
+/// errors ends with it.
 const CompileFail = struct {
     name: []const u8,
     source: []const u8,
@@ -84,7 +90,7 @@ const form_programs = [_]CompileFail{
         .name = "switch_copy_on_x86_64",
         .source = "tools/compile_fail/switch_copy_on_x86_64.zig",
         .arch = .x86_64,
-        .error_text = "error: inline call of noinline function",
+        .error_text = "note: function being called inline must be comptime-known",
     },
     .{
         .name = "switch_call_on_aarch64",

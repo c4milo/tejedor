@@ -18,8 +18,7 @@ const one_decimal_under_ns = 100;
 /// The words of the report for the place of a form beside the form of the package.
 fn role_text(form: Form) []const u8 {
     if (form == probe_forms.package_form) return "the form of the package";
-    if (form == .jump) return "a candidate";
-    return "the other form";
+    return "a form to compare with";
 }
 
 pub fn print_numbers(
@@ -149,22 +148,22 @@ test "the numbers print as a table of three rows for each form in each shape" {
     const table = writer.buffered();
     try testing.expect(!contains(table, "FAILED"));
     try testing.expect(contains(table, "| one switch to a fiber and one switch back, with a" ++
-        " copy of the switch in the caller, in the loop (" ++ comptime role_text(.copy) ++
+        " copy of std's switch in the caller, in the loop (" ++ comptime role_text(.copy) ++
         ") | 12.3 | 24.5 | 6.13 |\n| one call of an empty function, beside those switches |" ++
         " 1.50 | 3.00 | 0.75 |\n| those switches less that call, for each sample | 10.8 | 21.5 |" ++
         " 5.38 |\n"));
-    try testing.expect(contains(table, "with a call of the switch, in a function of each side (" ++
-        comptime role_text(.call) ++ ") | 250 | 500 | 125 |"));
-    try testing.expect(contains(table, "with a call of the jump candidate, in the loop (a" ++
-        " candidate) | 30.0 | 60.0 | 15.0 |"));
+    try testing.expect(contains(table, "with a call of std's switch, in a function of each" ++
+        " side (" ++ comptime role_text(.call) ++ ") | 250 | 500 | 125 |"));
+    try testing.expect(contains(table, "with a call of the jump, in the loop (" ++
+        comptime role_text(.jump) ++ ") | 30.0 | 60.0 | 15.0 |"));
     try testing.expect(contains(table, "a batch of 100 operations"));
 }
 
-test "the form of the package and the other form name their roles" {
+test "the form of the package and each form to compare with name their roles" {
     try testing.expectEqualStrings("the form of the package", role_text(probe_forms.package_form));
-    const other: Form = if (probe_forms.package_form == .copy) .call else .copy;
-    try testing.expectEqualStrings("the other form", role_text(other));
-    try testing.expectEqualStrings("a candidate", role_text(.jump));
+    for (probe_forms.forms[1..]) |form| {
+        try testing.expectEqualStrings("a form to compare with", role_text(form));
+    }
 }
 
 test "a row that measured nothing prints FAILED in its row, and under the table" {

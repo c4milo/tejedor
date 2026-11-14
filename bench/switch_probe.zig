@@ -13,10 +13,10 @@
 //!   the package.
 //! - That probe was one row of a table, where this one is a program.
 //! - This probe measures each form of the switch in three shapes (`switch_probe_forms.zig`). The
-//!   forms are a copy of the switch in the caller, and a call of a function that holds it. On
-//!   x86_64 a third form is the jump candidate of `jump_switch.zig` (record 5). The shapes put the
-//!   switch in the loop, in one function that both sides call, or in a function of each side. The
-//!   report gives the form of the package first.
+//!   forms are a copy of std's switch in the caller, a call of a function that holds it, and on
+//!   x86_64 the jump, which is the form of the package there (record 6). The shapes put the switch
+//!   in the loop, in one function that both sides call, or in a function of each side. The report
+//!   gives the form of the package first.
 //!
 //! For each form in each shape, the probe starts one fiber on a stack of its own. After that, the
 //! main context and the fiber switch to each other, and nothing else runs. So the number is the
@@ -45,7 +45,7 @@ const Writer = std.Io.Writer;
 const plan: measure.Plan = .{ .warmup = 64, .samples = 2000, .batch = 16384 };
 
 /// The bytes that the report can hold. The report of nine rows, three forms in three shapes, with
-/// the longest words of each row, does not fit in 4,096 bytes.
+/// the longest words of each row, does not fit in 4,096 bytes (record 5).
 const report_bytes_max = 8192;
 
 /// Exit statuses.
@@ -196,6 +196,6 @@ test {
     _ = measure;
     _ = probe_forms;
     _ = probe_report;
-    _ = @import("jump_switch.zig");
+    _ = @import("switch_probe_ways.zig");
     _ = @import("std_switch_x86_64.zig");
 }

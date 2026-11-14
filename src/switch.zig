@@ -1,6 +1,15 @@
-//! The context switch of a fiber. It is std 0.16.0's `fiber.contextSwitch`, instruction for
-//! instruction, with six changes to the clobber lists. std's own function faults in a
-//! ReleaseSafe build. rotor's decision 22 found the first three errors at its check 1:
+//! The context switch of a fiber, the entry of a new fiber, and its first context. Each caller of
+//! the package calls `switch_context` with a plain call, and gets the form of its architecture:
+//!
+//! - On aarch64 it is std 0.16.0's `fiber.contextSwitch`, instruction for instruction, with changes
+//!   to the clobber list. It is `switch_copied`, an inline function, so each caller holds a copy of
+//!   the switch, in Debug and in ReleaseSafe (records 3 and 5).
+//! - On x86_64 it is the jump of `switch_jump.zig`: a function in assembly that saves the
+//!   callee-saved registers itself, and that each caller calls as a C function (record 6). It holds
+//!   no code of std.
+//!
+//! std's own function faults in a ReleaseSafe build. rotor's decision 22 found the first three
+//! errors of its lists at its check 1:
 //!
 //! 1. The register that carries the message is not in the list. It is `x1` on aarch64, and `rsi`
 //!    on x86_64. std names it as the input and as a clobber. The optimized build then never loads
@@ -12,10 +21,9 @@
 //!
 //! This package found two more errors on 2026-11-12, and Camilo ruled on each:
 //!
-//! 4. On x86_64 the list names `xmm0` to `xmm15` beside `zmm0` to `zmm31`. std names the `zmm`
-//!    registers alone, and a processor with no AVX-512 has none. For such a target the optimized
-//!    build kept a floating-point value in an `xmm` register across the switch, and the other
-//!    context changed it. Record 2 of `docs/decisions/` holds this correction.
+//! 4. On x86_64 the list names `xmm0` to `xmm15` beside `zmm0` to `zmm31` (record 2). Since record
+//!    6 the x86_64 list is not in this file. `bench/std_switch_x86_64.zig` holds std's switch of
+//!    x86_64 with that list, for the probe.
 //! 5. On aarch64 the list names `nzcv`, the condition flags. std's list does not. The optimized
 //!    build kept the flags of a comparison across the switch, and the other context changed them.
 //!    Record 3 holds this correction.
@@ -26,34 +34,27 @@
 //!    does. LLVM reserves `ffr`, so it never keeps a value there, and the name protects nothing.
 //!    LLVM printed a warning for each copy of the switch that named it.
 //!
-//! The session applied the same reason to `x18`, and Camilo has not ruled it (record 5). LLVM
-//! reserves `x18` on the systems of Apple, Android, OpenHarmony, Fuchsia, UEFI and Windows. It also
-//! reserves it for a processor with the feature `reserve_x18`. The list names `x18` only where
-//! LLVM does not reserve it. `zig build test-reserved` fails when the list names a register that
-//! LLVM reserves.
+//! The session applied the same reason to `x18`, and Camilo accepted that choice on 2026-11-14
+//! (record 5). LLVM reserves `x18` on the systems of Apple, Android, OpenHarmony, Fuchsia, UEFI and
+//! Windows. It also reserves it for a processor with the feature `reserve_x18`. The list names
+//! `x18` only where LLVM does not reserve it. `zig build test-reserved` fails when the list names a
+//! register that LLVM reserves.
 //!
-//! Record 3 sets the form in which a caller gets the switch, and record 5 puts that form in
-//! `switch_context` itself. `switch_copied` holds the assembly. Each caller of the package calls
-//! `switch_context` with a plain call:
+//! Record 3 sets the form in which a caller gets the switch. Record 5 puts that form in
+//! `switch_context` itself, and record 6 makes the jump the form of x86_64:
 //!
-//! - On aarch64 `switch_context` is `switch_copied`, an inline function. So each caller holds a
-//!   copy of the switch, in Debug and in ReleaseSafe. The clobber list then decides what a caller
+//! - On aarch64 `switch_context` is `switch_copied`. The clobber list then decides what a caller
 //!   keeps across the switch. A test can see a name of the list only where the compiler keeps a
 //!   value in that register. Records 3 and 5 give the mutations of the list. No test proves `p0`
-//!   to `p15`, `fpcr` or `fpsr`.
-//! - On x86_64 `switch_context` is a function that is never inlined, so each caller calls it. The
-//!   calling convention then covers each caller-saved register that the list does not cover. The
-//!   clobber type of Zig 0.16.0 has no working name for the x87 registers. It has no name for `k0`
-//!   to `k7` of AVX-512, or for `r16` to `r31` of APX. It names `xmm16` to `xmm31`, and the list
-//!   does not hold them (record 2). With a copy of the switch, an optimized build kept a value in
-//!   such a register across the switch. No test can prove the name of a caller-saved register
-//!   there, because a caller keeps no value in such a register across a call.
+//!   to `p15`, `fpcr` or `fpsr`. Zig refuses a call of it with `.never_inline`.
+//! - On x86_64 `switch_context` is the address of the jump, with the C calling convention. So each
+//!   caller calls it, and the calling convention covers each caller-saved register: the x87
+//!   registers, `xmm0` to `xmm31`, `k0` to `k7` and `r16` to `r31` among them. Zig refuses a call
+//!   of it with `.always_inline`.
 //!
-//! Zig refuses the other form at compile time: a call with `.always_inline` of the x86_64 function,
-//! and a call with `.never_inline` of the aarch64 one. `switch_other_form` gives the other form of
-//! an architecture to the tests and the probe. The lint rule `switch-form` refuses a reference to
-//! that name in each other file under `src/`. On x86_64 the probe also measures a candidate,
-//! `bench/jump_switch.zig`, which the package does not use (record 5).
+//! `switch_other_form` gives the call of aarch64 to the tests and the probe. The lint rule
+//! `switch-form` refuses a reference to that name in each other file under `src/`. On x86_64 this
+//! file has no other form, and the name does not compile.
 //!
 //! The switch saves no control register: not FPCR on aarch64, and not MXCSR or the x87 control
 //! word on x86_64. So the rounding mode and the exception masks belong to the thread, and not to
@@ -61,24 +62,27 @@
 //!
 //! Each form of the switch needs a process with no shadow stack and no indirect branch tracking of
 //! the processor, such as CET on x86_64. std's switch needs the same. After a switch, a return can
-//! go to an address that the other context pushed, and a shadow stack refuses that return. The
-//! switch resumes at a label with no `endbr64`, and branch tracking refuses that jump. The build
-//! writes no GNU property note that asks Linux for either. The ReleaseSafe probe for x86_64 Linux
-//! holds no such note (`llvm-readelf -n`, 2026-11-13).
+//! go to an address that the other context pushed, and the call of the jump never returns. A
+//! shadow stack refuses both. Each form resumes with an indirect jump to an address with no
+//! `endbr64`, and branch tracking refuses that jump. The build writes no GNU property note that
+//! asks Linux for either. The ReleaseSafe probe for x86_64 Linux holds no such note (`llvm-readelf
+//! -n`, 2026-11-14).
 //!
-//! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch with
-//! this copy (rotor's decision 34, "Upkeep").
+//! std's file is the same, byte for byte, in Zig 0.17.1. A Zig upgrade compares std's switch of
+//! aarch64 with this copy (rotor's decision 34, "Upkeep"). Record 6 lists what that upgrade reads
+//! for x86_64.
 //!
 //! The first context and the entry of a new fiber depart from std's `Kqueue.mainIdleEntry` (record
 //! 4). The argument of the fiber is above its first stack pointer, and `main` starts with a return
-//! address of zero.
+//! address of zero. On x86_64 the first stack is the one of the jump (record 6).
 //!
-//! This file holds assembly and a forced inline, so `docs/hot-path-ledger.md` holds a row for each
-//! use.
+//! This file holds assembly and a forced inline, and `switch_jump.zig` holds assembly. So
+//! `docs/hot-path-ledger.md` names both files, and holds a row for each use.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const fiber = std.Io.fiber;
+const jump = @import("switch_jump.zig");
 
 /// True where this file has a switch and an entry for the target of the build, by the rule of
 /// `supports` (record 5). A true is never wrong about the calling convention. The switch does not
@@ -122,26 +126,28 @@ fn supports(target: *const std.Target) bool {
     };
 }
 
-pub const Context = fiber.Context;
-pub const Switch = fiber.Switch;
+/// The state of a context that a switch left. On aarch64 it is std's: the stack pointer, the frame
+/// pointer and the address to resume at. On x86_64 it is the jump's: one word, the stack pointer,
+/// and the stack holds the rest (record 6).
+pub const Context = switch (builtin.cpu.arch) {
+    .x86_64 => jump.Context,
+    else => fiber.Context,
+};
+
+/// What a switch names: the context to save into, and the context to resume.
+pub const Switch = switch (builtin.cpu.arch) {
+    .x86_64 => jump.Switch,
+    else => fiber.Switch,
+};
 
 // The assembly of this file names each field of `Context` and of `Switch` by its offset, as a
-// number. Both types are std's. If a Zig upgrade moves a field, the build stops here.
+// number. On aarch64 both types are std's. If a Zig upgrade moves a field, the build stops here.
+// `switch_jump.zig` holds the asserts of x86_64.
 comptime {
-    switch (builtin.cpu.arch) {
-        .aarch64 => {
-            assert(@offsetOf(Context, "sp") == 0);
-            assert(@offsetOf(Context, "fp") == 8);
-            assert(@offsetOf(Context, "pc") == 16);
-        },
-        .x86_64 => {
-            assert(@offsetOf(Context, "rsp") == 0);
-            assert(@offsetOf(Context, "rbp") == 8);
-            assert(@offsetOf(Context, "rip") == 16);
-        },
-        else => {},
-    }
-    if (supported) {
+    if (supported and builtin.cpu.arch == .aarch64) {
+        assert(@offsetOf(Context, "sp") == 0);
+        assert(@offsetOf(Context, "fp") == 8);
+        assert(@offsetOf(Context, "pc") == 16);
         assert(@sizeOf(Context) == 24);
         assert(@offsetOf(Switch, "old") == 0);
         assert(@offsetOf(Switch, "new") == 8);
@@ -157,48 +163,40 @@ pub const stack_end_alignment = 16;
 pub const Main = fn (argument: usize) callconv(.withStackAlign(.c, stack_end_alignment)) noreturn;
 
 /// The context that a new fiber starts from (record 4). `stack_end` is the address one byte after
-/// the stack of the fiber. This function writes `argument` into the word below `stack_end`, and
-/// the entry hands that word to `main`. The word is above the first stack pointer, so a signal
-/// handler that runs on this stack before the entry does not write over it.
+/// the stack of the fiber. The argument is above the first stack pointer, so a signal handler that
+/// runs on this stack before the entry does not write over it.
 ///
-/// - On aarch64 the first stack pointer is 16 bytes below `stack_end`. The entry clears the link
-///   register, so `main` starts with a return address of zero.
-/// - On x86_64 the first stack pointer is 24 bytes below `stack_end`, and the word there is zero.
-///   `main` takes that word as its return address. The stack pointer is then 8 bytes past a
-///   multiple of 16, as a function sees it at its entry.
+/// - On aarch64 this function writes `argument` into the word below `stack_end`, and the entry
+///   hands that word to `main`. The first stack pointer is 16 bytes below `stack_end`. The entry
+///   clears the link register, so `main` starts with a return address of zero.
+/// - On x86_64 it is the first stack of the jump (`switch_jump.zig`, record 6). The entry pushes a
+///   return address of zero, and the stack pointer is then 8 bytes past a multiple of 16, as a
+///   function sees it at its entry.
 ///
 /// So a stack trace from a fiber ends at the frame of `main`.
 pub fn initial_context(stack_end: usize, argument: usize, comptime main: Main) Context {
     assert(stack_end % stack_end_alignment == 0);
     assert(stack_end != 0);
-    const argument_slot: *usize = @ptrFromInt(stack_end - @sizeOf(usize));
-    argument_slot.* = argument;
-    const entry = @intFromPtr(&Entry(main).entry);
     switch (builtin.cpu.arch) {
-        .aarch64 => return .{ .sp = stack_end - stack_end_alignment, .fp = 0, .pc = entry },
-        .x86_64 => {
-            const stack_pointer = stack_end - stack_end_alignment - @sizeOf(usize);
-            const return_slot: *usize = @ptrFromInt(stack_pointer);
-            return_slot.* = 0;
-            return .{ .rsp = stack_pointer, .rbp = 0, .rip = entry };
+        .aarch64 => {
+            const argument_slot: *usize = @ptrFromInt(stack_end - @sizeOf(usize));
+            argument_slot.* = argument;
+            const entry = @intFromPtr(&Entry(main).entry);
+            return .{ .sp = stack_end - stack_end_alignment, .fp = 0, .pc = entry };
         },
+        .x86_64 => return jump.initial_context(stack_end, argument, main),
         else => @compileError("no fiber entry for this architecture"),
     }
 }
 
-/// The entry of a new fiber. It reads the argument from the word below the end of the stack into
-/// the first argument register. Then it jumps to `main`. std's `Kqueue.mainIdleEntry` reads the
-/// argument below the stack pointer on aarch64, and this entry does not (record 4).
+/// The entry of a new fiber on aarch64. It reads the argument from the word below the end of the
+/// stack into the first argument register, clears the link register, and jumps to `main`. std's
+/// `Kqueue.mainIdleEntry` reads the argument below the stack pointer, and this entry does not
+/// (record 4).
 fn Entry(comptime main: Main) type {
     return struct {
         fn entry() callconv(.naked) void {
             switch (builtin.cpu.arch) {
-                .x86_64 => asm volatile (
-                    \\ movq 16(%%rsp), %%rdi
-                    \\ jmp %[main:P]
-                    :
-                    : [main] "X" (&main),
-                ),
                 .aarch64 => asm volatile (
                     \\ ldr x0, [sp, #8]
                     \\ mov lr, xzr
@@ -206,7 +204,7 @@ fn Entry(comptime main: Main) type {
                     :
                     : [main] "X" (&main),
                 ),
-                else => @compileError("no fiber entry for this architecture"),
+                else => @compileError("this entry is for aarch64 alone"),
             }
         }
     };
@@ -214,30 +212,28 @@ fn Entry(comptime main: Main) type {
 
 /// Saves the context that runs into `message.old`, and resumes `message.new`. It returns when
 /// another switch names this context as its `new`. A caller calls it with a plain call, and gets
-/// the form of record 3:
+/// the form of its architecture:
 ///
 /// - On aarch64 it is `switch_copied`, an inline function. So each caller holds a copy of the
-///   switch, in Debug and in ReleaseSafe.
-/// - On x86_64 it is `switch_called`, a function that is never inlined. So each caller calls it,
-///   in Debug and in ReleaseSafe.
+///   switch, in Debug and in ReleaseSafe (records 3 and 5).
+/// - On x86_64 it is the jump, a pointer to a function in assembly with the C calling convention.
+///   So each caller calls it, in Debug and in ReleaseSafe (record 6).
 pub const switch_context = switch (builtin.cpu.arch) {
-    .x86_64 => switch_called,
+    .x86_64 => jump.switch_context,
     else => switch_copied,
 };
 
-/// The form of the switch that the package does not use on this architecture (record 5). A plain
-/// call of it is a call on aarch64 and a copy on x86_64, in Debug and in ReleaseSafe. Only the
-/// tests and the probe name it. The lint rule `switch-form` keeps it out of the other files under
-/// `src/`, because on x86_64 a copy loses an `f80` value (record 3). The header of the rule lists
-/// the references that it cannot see.
+/// The call of aarch64, the form that the package does not use there (record 5). A plain call of
+/// it is a call, in Debug and in ReleaseSafe. Only the tests and the probe name it, and the lint
+/// rule `switch-form` keeps it out of the other files under `src/`. On x86_64 this file has no
+/// other form (record 6), and a reference to this name does not compile there.
 pub const switch_other_form = switch (builtin.cpu.arch) {
-    .x86_64 => switch_copied,
-    else => switch_called,
+    .aarch64 => switch_called,
+    else => @compileError("the package has no other form of the switch on this architecture"),
 };
 
-/// A function that holds a copy of the switch, and that no caller can copy. A call of it with
-/// `.always_inline` does not compile. It has the C calling convention, so its argument is in the
-/// first argument register. `switch_test.zig` relies on that.
+/// A function that holds a copy of the switch, and that no caller can copy. It has the C calling
+/// convention, so its argument is in `x0`. `switch_test.zig` relies on that.
 noinline fn switch_called(message: *const Switch) callconv(.c) void {
     switch_copied(message);
 }
@@ -253,8 +249,9 @@ const x18_reserved = switch (builtin.target.os.tag) {
             std.Target.aarch64.featureSetHas(builtin.cpu.features, .reserve_x18)),
 };
 
-/// The assembly of the switch. Each caller holds a copy of it, because it is an inline function,
-/// and `switch_called` is one such caller. A call of it with `.never_inline` does not compile.
+/// The assembly of the switch on aarch64. Each caller holds a copy of it, because it is an inline
+/// function, and `switch_called` is one such caller. A call of it with `.never_inline` does not
+/// compile.
 inline fn switch_copied(message: *const Switch) void {
     _ = switch (builtin.cpu.arch) {
         .aarch64 => asm volatile (
@@ -352,96 +349,6 @@ inline fn switch_copied(message: *const Switch) void {
               .fpcr = true,
               .fpsr = true,
               .nzcv = true,
-              .memory = true,
-            }),
-        .x86_64 => asm volatile (
-            \\ movq 0(%%rsi), %%rax
-            \\ movq 8(%%rsi), %%rcx
-            \\ leaq 0f(%%rip), %%rdx
-            \\ movq %%rsp, 0(%%rax)
-            \\ movq %%rbp, 8(%%rax)
-            \\ movq %%rdx, 16(%%rax)
-            \\ movq 0(%%rcx), %%rsp
-            \\ movq 8(%%rcx), %%rbp
-            \\ jmpq *16(%%rcx)
-            \\0:
-            : [received_message] "={rsi}" (-> *const Switch),
-            : [message_to_send] "{rsi}" (message),
-            : .{
-              .rax = true,
-              .rcx = true,
-              .rdx = true,
-              .rbx = true,
-              .rdi = true,
-              .r8 = true,
-              .r9 = true,
-              .r10 = true,
-              .r11 = true,
-              .r12 = true,
-              .r13 = true,
-              .r14 = true,
-              .r15 = true,
-              .mm0 = true,
-              .mm1 = true,
-              .mm2 = true,
-              .mm3 = true,
-              .mm4 = true,
-              .mm5 = true,
-              .mm6 = true,
-              .mm7 = true,
-              .zmm0 = true,
-              .zmm1 = true,
-              .zmm2 = true,
-              .zmm3 = true,
-              .zmm4 = true,
-              .zmm5 = true,
-              .zmm6 = true,
-              .zmm7 = true,
-              .zmm8 = true,
-              .zmm9 = true,
-              .zmm10 = true,
-              .zmm11 = true,
-              .zmm12 = true,
-              .zmm13 = true,
-              .zmm14 = true,
-              .zmm15 = true,
-              .zmm16 = true,
-              .zmm17 = true,
-              .zmm18 = true,
-              .zmm19 = true,
-              .zmm20 = true,
-              .zmm21 = true,
-              .zmm22 = true,
-              .zmm23 = true,
-              .zmm24 = true,
-              .zmm25 = true,
-              .zmm26 = true,
-              .zmm27 = true,
-              .zmm28 = true,
-              .zmm29 = true,
-              .zmm30 = true,
-              .zmm31 = true,
-              .xmm0 = true,
-              .xmm1 = true,
-              .xmm2 = true,
-              .xmm3 = true,
-              .xmm4 = true,
-              .xmm5 = true,
-              .xmm6 = true,
-              .xmm7 = true,
-              .xmm8 = true,
-              .xmm9 = true,
-              .xmm10 = true,
-              .xmm11 = true,
-              .xmm12 = true,
-              .xmm13 = true,
-              .xmm14 = true,
-              .xmm15 = true,
-              .fpsr = true,
-              .fpcr = true,
-              .mxcsr = true,
-              .rflags = true,
-              .dirflag = true,
               .memory = true,
             }),
         else => @compileError("no fiber switch for this architecture"),

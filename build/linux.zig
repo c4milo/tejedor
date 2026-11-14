@@ -4,10 +4,11 @@
 //!
 //! The step builds one test executable for each processor of `processors`, each suite and each
 //! mode of the build. The processors are aarch64 and x86-64, the suites are the package and the
-//! bench programs, and the modes are Debug and ReleaseSafe. The tests of the jump candidate of
-//! `bench/jump_switch.zig` and of `bench/std_switch_x86_64.zig` run on x86-64 alone, so the bench
-//! programs are a suite here too (record 5). The check of step 0 of the build order names both processors. The faults of the context
-//! switch showed only in an optimized build (rotor's decision 34, "Build order" and "Upkeep").
+//! bench programs, and the modes are Debug and ReleaseSafe. The tests of std's switch of x86-64,
+//! in `bench/std_switch_x86_64_test.zig`, run on x86-64 alone, so the bench programs are a suite
+//! here too (records 5 and 6). The check of step 0 of the build order names both processors. The
+//! faults of the context switch showed only in an optimized build (rotor's decision 34, "Build
+//! order" and "Upkeep").
 //!
 //! The ABI is musl and nothing links libc, so each executable is static and takes nothing from
 //! the image of its container. The CPU model is the baseline of the architecture, so an

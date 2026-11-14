@@ -9,6 +9,14 @@ Note of 2026-11-13, second round: record 5 keeps the two forms of this record, a
 copy on aarch64 and a call on x86-64. Zig refuses a call that asks for the other form. The
 parts below that name `call_modifier` give the state of the first round.
 
+Note of 2026-11-14: record 6 replaces the call of x86-64 with a call of the jump, a function in
+assembly that saves the callee-saved registers itself. Each caller still calls a function, so the
+calling convention still covers the x87 registers, `k0` to `k7` and `r16` to `r31`. Decision 1 of
+this record holds as it is. On x86-64, decision 2 holds for the jump, and std's call and copy left
+`src/switch.zig` for `bench/std_switch_x86_64.zig`. Decision 3 holds for both architectures. The
+parts below that name the x86-64 list or `switch_context` on x86-64 give the state before record
+6.
+
 ## The decision
 
 1. **On aarch64 the clobber list names `nzcv`, and each caller holds a copy of the switch.** This

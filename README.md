@@ -12,12 +12,13 @@ memory for the fibers and their stacks.
 
 Nothing is released, and the package has no public API yet. The design is accepted. The build
 order has seven steps, 0 to 6. Step 0 is built: the context switch of a fiber, its tests, and a
-probe that measures the switch. On x86-64 the probe also measures a candidate switch, which the
-package does not use. The first numbers of the probe are in [bench/results](bench/results). They
-are from a busy machine, so they are not final. One run in CI on an x86-64 processor is in the
-fifth decision record. Step 1 waits for a review of the numbers. Camilo ruled on the
-known errors of the switch on 2026-11-13, and [CLAUDE.md](CLAUDE.md) says where each ruling is,
-under "Where the work stands".
+probe that measures the switch. On aarch64 the switch is std's, with corrections. On x86-64 it is
+a jump in assembly that saves the callee-saved registers itself, and the probe compares it with
+std's switch there. The numbers of the probe are in [bench/results](bench/results). The runs on
+the development machine were on a busy machine, so they are not final. The runs in CI on x86-64
+processors are in the same directory and in the fifth decision record. Step 1 waits for a review
+of the numbers. Camilo ruled on the switch on 2026-11-13 and 2026-11-14, and
+[CLAUDE.md](CLAUDE.md) says where each ruling is, under "Where the work stands".
 
 ## What it needs
 
@@ -31,7 +32,9 @@ Those are the three platforms that step 0 of the build order checks. No check co
 x86-64. `supported` of the context switch is false on Windows, on Fuchsia, on UEFI on x86-64,
 and where a pointer is 32 bits. The
 [fifth decision record](docs/decisions/0005-a-plain-call-of-the-switch-and-a-probe-of-a-jump.md)
-gives the rule.
+gives the rule. The
+[sixth decision record](docs/decisions/0006-the-jump-is-the-switch-of-x86-64.md) gives the switch
+of x86-64.
 
 ## Design
 

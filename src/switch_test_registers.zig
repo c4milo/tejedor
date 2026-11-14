@@ -1,13 +1,17 @@
 //! The test of the registers that a switch must keep (rotor's decision 34, "Build order", step 0).
 //!
-//! The assembly of the switch saves three things: the stack pointer, the frame pointer, and the
-//! address to resume at. Each other register is in its clobber list. So the compiler saves each
-//! callee-saved register in a function that holds the switch, before the assembly runs, and
+//! On aarch64 the assembly of the switch saves three things: the stack pointer, the frame pointer,
+//! and the address to resume at. Each other register is in its clobber list. So the compiler saves
+//! each callee-saved register in a function that holds the switch, before the assembly runs, and
 //! restores it after. The compiler does not save a register that the list misses, and the context
 //! that runs in between can then change it.
 //!
+//! On x86_64 the jump pushes the six callee-saved registers itself, and pops those of the context
+//! that it resumes (record 6). A register that it does not push or pop keeps the value of the
+//! other context.
+//!
 //! The test calls the switch from assembly, so it needs a function that is out of line:
-//! `switch_context` on x86_64, and `switch_other_form` on aarch64 (`switch_test.zig`).
+//! `switch_context`, the jump, on x86_64, and `switch_other_form` on aarch64 (`switch_test.zig`).
 //!
 //! The test gives each callee-saved register a value of its own, and switches to a fiber. The
 //! fiber gives each of those registers another value, and switches back. Then each side reads

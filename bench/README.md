@@ -29,18 +29,19 @@ quiet machine.
 
 ### The forms
 
-The probe measures two forms of the switch (record 3), and on x86-64 a candidate (record 5):
+The probe measures three forms of the switch on x86-64, and two on aarch64 (records 3, 5 and 6):
 
 | form | what a caller holds | the form of the package on |
 |---|---|---|
-| a copy | a copy of the switch | aarch64 |
-| a call | a call of a function that holds the switch, and that saves and restores the callee-saved registers | x86-64 |
-| the jump candidate | a call of `jump_switch` of `jump_switch.zig`, which pushes the callee-saved registers and resumes with a jump | no platform: a candidate of x86-64 |
+| a copy | a copy of std's switch | aarch64 |
+| a call | a call of a function that holds std's switch, and that saves and restores the callee-saved registers | no platform: a form to compare with |
+| the jump | a call of the jump of `src/switch_jump.zig`, which pushes the callee-saved registers and resumes with a jump | x86-64 (record 6) |
 
 The probe gets the form of the package with a plain call of `switch_context`, as the package does.
-On aarch64 it gets the other form, a call, with a plain call of `switch_other_form` (record 5). On
-x86-64 it gets the copy from `std_switch_x86_64.zig`. That file holds std's switch with the list of
-the package, as a copy and as a call, and the tests of both forms.
+On aarch64 it gets the call with a plain call of `switch_other_form` (record 5). On x86-64 it gets
+std's call and std's copy from `std_switch_x86_64.zig`. That file holds std's switch with the list
+of the package, and `std_switch_x86_64_test.zig` holds the tests of both forms.
+`switch_probe_ways.zig` says where each form comes from.
 
 ### The three shapes
 
@@ -59,15 +60,16 @@ count of such returns for each form and shape. After the switch, an empty block 
 call of the switch a call. The function of the fiber holds one `nop` more than the function of the
 main context, so an optimized build cannot merge the two.
 
-A report gives the form of the package first, and says so in its row. The other form follows it,
-to compare with, and then the candidate, on x86-64.
+A report gives the form of the package first, and says so in its row. The forms to compare with
+follow it: on x86-64 the call and then the copy, and on aarch64 the call.
 
-The candidate is a switch in the style of Boost.Context for x86-64 System V. It is under `bench/`
-alone, and the package does not use it. It replaces the call only if it measures faster, and
-Camilo rules it. `zig build test-bench` runs its four tests on x86-64, and the Linux gate runs
-them on x86-64 Linux. On a Mac the x86-64 build runs under an emulator, so no number of a call on
-x86-64 is in a result. The CI ran the probe one time on a real x86-64 processor, and record 5 gives
-those numbers.
+On x86-64 the form of the package is the jump, a switch in the style of Boost.Context for x86-64
+System V (record 6). Until 2026-11-14 it was a candidate under `bench/` alone, and the call was the
+form of the package. Camilo ruled for the jump on the numbers of three CI runs, which
+`results/switch-github-2026-11-14.md` holds. In those runs its rows are "the jump candidate". The
+rows of std's call there are "a call of the switch". The rows of std's copy are "a copy of the
+switch in the caller". On a Mac the x86-64 build runs under an emulator, so no number of x86-64
+from `mac` is in a result.
 
 The first two files of `results/`, `switch-mac-2026-11-13.md` and
 `switch-orbstack-2026-11-13.md`, came before record 3, and their rows name the forms in other
@@ -83,19 +85,20 @@ the switch in both loops. "With `switch_context` never inlined" was a call.
   loop, and they still keep few registers across the switch.
 - A slow single switch. A batch mean hides it.
 - A drift of the machine during a run. The probe runs each row one time, in a fixed order.
-  First come the three shapes of the form of the package, then the three of the other form. On
-  x86-64 the three of the candidate come last. So a row of the candidate runs six rows after the
-  row of the call in the same shape. A drift can fall on one row more than on another, so compare
-  the forms of one run with care.
+  First come the three shapes of the form of the package, then the three of each form to compare
+  with. On x86-64 the order is the jump, the call, then the copy. So a row of the copy runs six
+  rows after the row of the jump in the same shape. A drift can fall on one row more than on
+  another, so compare the forms of one run with care.
 
 ### How the probe knows that it measured the switch
 
 - The fiber counts each time that it runs. The probe fails when that count differs from the count
   of the switches to the fiber.
-- A test reads the address that each side saved at its last switch. For a call, it also reads
-  the return address of that call. These show the form and the function of each row. So a row
-  that runs another form or another function than its label fails the test. Record 5 says what
-  the test does not read.
+- A test reads the address that each side saved at its last switch. For a call, it also reads the
+  return address of that call. These show the form and the function of each row. So a row that runs
+  another form or another function than its label fails the test. For the jump, the fiber reads the
+  address to resume at of the main context while the main context waits (record 6). In the loop the
+  test checks the form alone, and record 5 says why.
 - The empty function reads a volatile value, and it is `noinline`. So its call stays in the loop.
 - A median under 0.15 ns is less than one cycle of a 6 GHz core. The probe then prints `FAILED`
   and exits with status 1.
@@ -147,7 +150,7 @@ A run on a busy machine is no final number. Each file of `bench/results/` says w
 | `results/switch-mac-2026-11-13.md` | `mac` | four busy runs, at load averages of 17 to 34, and no final number |
 | `results/switch-orbstack-2026-11-13.md` | `orbstack` | four busy runs, at load averages of 28 to 42 on the host, and no final number |
 | `results/switch-mac-2026-11-13-shapes.md` | `mac` | three busy runs of the three shapes, and no final number |
-| `results/switch-github-2026-11-14.md` | `github` | three CI runs at `ba1daf0`, each on another runner and another x86-64 processor, and no number of a quiet machine |
+| `results/switch-github-2026-11-14.md` | `github` | three CI runs at `ba1daf0`, each on another runner and another x86-64 processor, and no number of a quiet machine. Record 6 reads them |
 
 No run on a quiet `mac` exists yet. The first CI run, on 2026-11-13, is in record 5 and in no file
 of `results/`.
@@ -158,8 +161,8 @@ of `results/`.
 |---|---|
 | `switch_probe.zig` | the entry of the probe of the context switch, and the table of the machine |
 | `switch_probe_forms.zig` | the forms and the shapes that the probe measures, and the run of each row |
+| `switch_probe_ways.zig` | where the probe gets each form: its types, its first context and its switch |
 | `switch_probe_report.zig` | the table of the numbers in the report |
-| `jump_switch.zig` | the jump candidate of record 5 for x86-64, and its tests |
 | `std_switch_x86_64.zig` | std's switch for x86-64 with the list of the package, as a copy and as a call, with the first context of record 4 |
 | `std_switch_x86_64_test.zig` | the tests of `std_switch_x86_64.zig`, which run on x86-64 alone |
 | `measure.zig` | the method that times a probe: batches, the median, the p99, and two loops back to back |

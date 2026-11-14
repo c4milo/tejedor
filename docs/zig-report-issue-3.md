@@ -141,8 +141,9 @@ Results, the same with Zig 0.16.0 and 0.17.1, in Debug and in ReleaseSafe, two r
 
 The handler ran one time in each run.
 
-**Suggested change.** I use this entry in my own fiber code. The results above show it as the
-"suggested" entry. `stack_end` is the address one byte after the stack of the fiber:
+**Suggested change.** I use this entry in my own fiber code on aarch64, and I used it on x86_64
+until my code moved to a switch of its own there. The results above show it as the "suggested"
+entry. `stack_end` is the address one byte after the stack of the fiber:
 
 | | aarch64 | x86_64 |
 |---|---|---|

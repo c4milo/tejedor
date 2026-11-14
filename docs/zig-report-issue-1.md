@@ -348,9 +348,11 @@ for a CPU with the feature `reserve_x18`. A list that names `x18` there prints
 compiles of such a list with both Zig versions, and not in the source of LLVM. So the suggested
 change removes `.ffr`, and names `x18` only where LLVM does not reserve it.
 
-**Suggested change.** This is a suggested change, and not a copy of my own code. My own copy of
-the switch differs from it in two places: it names `xmm0` to `xmm15`, and not `xmm0` to `xmm31`,
-and it has no riscv64 list.
+**Suggested change.** This is a suggested change, and not a copy of my own code. My own code uses
+std's switch on aarch64 alone, with the aarch64 list of this change. On x86_64 it calls a switch in
+assembly that saves the callee-saved registers itself. I keep a copy of std's x86_64 switch to
+measure against, and its list names `xmm0` to `xmm15`, and not `xmm0` to `xmm31`. My code has no
+riscv64 list.
 
 ```diff
          .aarch64 => asm volatile (
@@ -401,9 +403,9 @@ Notes on the change:
   build accepts them with no message. No program with them ran.
 - I did not test the riscv64 line.
 - No clobber name covers the x87 registers (issue 2). A caller can keep an `f80` value across
-  the switch on x86_64, with this change too. My own code calls the switch as a function that is
-  never inlined on x86_64, so the calling convention covers those registers. I did not measure
-  that form for this report.
+  the switch on x86_64, with this change too. On x86_64 my own code does not use std's switch. It
+  calls a switch in assembly as a C function, so the calling convention covers those registers. I
+  did not measure that form for this report.
 
 **Attachments:** `fiber_switch.zig`, `std_switch.zig`, `lowering.zig`, `wide.zig`.
 

@@ -1,7 +1,8 @@
-//! switch-form: the package calls the context switch only in the form of record 3 (record 5).
-//! `switch_context` has that form. `switch_other_form` has the other one: a call on aarch64, and
-//! a copy on x86_64. On x86_64 a copy loses an `f80` value across the switch. So only
-//! `src/switch.zig`, the tests and the probe may name `switch_other_form`.
+//! switch-form: the package calls the context switch only in the form of its architecture
+//! (records 5 and 6). `switch_context` has that form: a copy on aarch64, and the jump on x86_64.
+//! `switch_other_form` is the call of aarch64, and it does not compile on x86_64. Only the copy
+//! keeps the proof of the aarch64 list (record 3). So only `src/switch.zig`, the tests and the
+//! probe may name `switch_other_form`.
 //!
 //! Over each `.zig` file under `src/`, the rule flags a chain that holds `switch_other_form` as one
 //! segment, such as `switching.switch_other_form`. It does not read `src/switch.zig`, which

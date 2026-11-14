@@ -52,8 +52,8 @@ of a pointer for that reason.
   only; no riscv64 machine ran it).
 - Records 2 and 3 already say that `xmm16` to `xmm31` matter for a target with AVX-512VL and no
   512-bit registers (`-mcpu=x86_64_v4-evex512`, Zig 0.16.0 only). The difference is in what the
-  draft suggests: issue 1 asks std to name `xmm0` to `xmm31`, and tejedor's own list keeps `xmm0`
-  to `xmm15`.
+  draft suggests: issue 1 asks std to name `xmm0` to `xmm31`, and tejedor's copy of the x86_64
+  list, which its probe measures, keeps `xmm0` to `xmm15`.
 - Records 2 and 3 say that the clobber type has no names for `k0` to `k7` and `r16` to `r31`.
   They do not say if LLVM honours such names. LLVM 21.1.8 honours them. The session added `~{k0}` to
   `~{k7}` and `~{r16}` to `~{r31}` to the IR of std's switch. The build then saved the mask and

@@ -4,6 +4,17 @@ Status: **accepted**. Camilo ruled on 2026-11-13. The session wrote this record 
 the change. The ruling is Camilo's. The reasons against each alternative below are the session's,
 and Camilo has not read them.
 
+Note of 2026-11-14: record 6 makes the jump the switch of x86-64, with its own first stack and its
+own entry. So the x86-64 column of this record no longer describes `src/switch.zig`, and
+`bench/std_switch_x86_64.zig` keeps it for std's switch in the probe. The first stack of the jump
+keeps the rules of this record. Each word that the fiber needs is at or above its first stack
+pointer, and the argument reaches `main` in a register. `main` starts with a return address of zero,
+a frame pointer of zero, and a stack pointer 8 bytes past a multiple of 16. Record 6 holds its tests
+and mutations. The aarch64 column does not change. The test of the first stack is now in
+`src/switch_test_start.zig`, and it also checks that `initial_context` writes no byte below the
+first stack pointer. So the aarch64 macOS mutation that this record gives as NOT CAUGHT is CAUGHT in
+Debug and in ReleaseSafe (record 6).
+
 ## The decision
 
 `initial_context` and the entry of a new fiber in `src/switch.zig` change on both architectures.

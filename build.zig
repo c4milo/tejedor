@@ -12,8 +12,9 @@
 //! `-Drelease` selects ReleaseSafe, and no option admits ReleaseFast or ReleaseSmall.
 //!
 //! `zig build test-compile-fail` builds each program of tools/compile_fail, and none may compile.
-//! One hands the check of the Zig version another version. Two ask for the form of the context
-//! switch that the other architecture uses (build/switch_checks.zig). `zig build test` runs them.
+//! One hands the check of the Zig version another version. Two ask for a form of the context
+//! switch that the package does not use on their architecture (build/switch_checks.zig). `zig
+//! build test` runs them.
 //!
 //! `zig build lint` scores the cognitive complexity of each function, and runs the rules of
 //! tools/lint over the tree. `zig build test` runs the lint too. The tools are built on
@@ -108,7 +109,7 @@ pub fn build(b: *std.Build) void {
     bench.add(b, .{ .target = target, .test_step = test_step, .modes = &test_modes });
 
     // The check of the Zig version must stop a compile, with its message. So must a call of the
-    // context switch in the form of the other architecture.
+    // context switch in a form that the package does not use on its architecture.
     const compile_fail = compile_fail_step(b, target);
     switch_checks.add(b, .{ .compile_fail_step = compile_fail, .test_step = test_step });
     test_step.dependOn(compile_fail);
