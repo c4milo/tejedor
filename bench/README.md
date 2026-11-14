@@ -146,9 +146,10 @@ A run on a busy machine is no final number. Each file of `bench/results/` says w
 | `results/switch-mac-2026-11-13.md` | `mac` | four busy runs, at load averages of 17 to 34, and no final number |
 | `results/switch-orbstack-2026-11-13.md` | `orbstack` | four busy runs, at load averages of 28 to 42 on the host, and no final number |
 | `results/switch-mac-2026-11-13-shapes.md` | `mac` | three busy runs of the three shapes, and no final number |
+| `results/switch-github-2026-11-14.md` | `github` | three CI runs at `ba1daf0`, each on another runner and another x86-64 processor, and no number of a quiet machine |
 
-No run on a quiet `mac` exists yet. The one run on a GitHub runner, on 2026-11-13, is in record 5
-and in no file of `results/`.
+No run on a quiet `mac` exists yet. The first CI run, on 2026-11-13, is in record 5 and in no file
+of `results/`.
 
 ## Files
 
@@ -160,4 +161,4 @@ and in no file of `results/`.
 | `jump_switch.zig` | the jump candidate of record 5 for x86-64, and its tests |
 | `measure.zig` | the method that times a probe: batches, the median, the p99, and two loops back to back |
 | `machine.zig` | the machine and the load average, for the report |
-| `results/` | the reports of the runs that the steps above recorded. A file can hold several runs. Record 5 holds the one CI run |
+| `results/` | the reports of the runs that the steps above recorded, and of the CI runs of 2026-11-14. A file can hold several runs. Record 5 holds the first CI run |

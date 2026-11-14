@@ -38,6 +38,10 @@ Camilo asked why the switch is never inlined on x86-64. The session answered wit
 The answer that Camilo read put `xmm16` to `xmm31` among the registers with no working name. The
 clobber type names them, and the list does not hold them. The second bullet above corrects that.
 
+Note of 2026-11-14: three more CI runs of the probe, at `ba1daf0`, are in
+`bench/results/switch-github-2026-11-14.md`. Each ran on another runner, with another x86-64
+processor, and each holds the rows of the jump candidate.
+
 ## The decision
 
 Camilo ruled on 2026-11-13. The first ruling is in his words: "Call, and probe a jump."

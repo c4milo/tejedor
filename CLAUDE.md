@@ -294,7 +294,7 @@ rotor on 2026-09-22.
 - `docs/decisions/` holds the decision records.
 - `bench/` holds each program that measures the package. `bench/results/` holds the reports of the
   runs that the steps of `bench/README.md` recorded. A file can hold several runs. Record 5 holds
-  the one CI run.
+  the first CI run, and `bench/results/switch-github-2026-11-14.md` holds three more.
   `bench/README.md` says what each program measures, and how to record a result. A bench program
   takes a file of the library as a module of its own, which `build/bench.zig` makes. So the
   module `tejedor` exports no name for a probe.
