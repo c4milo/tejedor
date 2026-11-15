@@ -10,15 +10,35 @@ memory for the fibers and their stacks.
 
 ## Status
 
-Nothing is released, and the package has no public API yet. The design is accepted. The build
-order has seven steps, 0 to 6. Step 0 is built: the context switch of a fiber, its tests, and a
-probe that measures the switch. On aarch64 the switch is std's, with corrections. On x86-64 it is
-a jump in assembly that saves the callee-saved registers itself, and the probe compares it with
-std's switch there. The numbers of the probe are in [bench/results](bench/results). The runs on
-the development machine were on a busy machine, so they are not final. The runs in CI on x86-64
-processors are in the same directory and in the fifth decision record. Step 1 waits for a review
-of the numbers. Camilo ruled on the switch on 2026-11-13 and 2026-11-14, and
-[CLAUDE.md](CLAUDE.md) says where each ruling is, under "Where the work stands".
+Nothing is released. The design is accepted, and the build order has seven steps, 0 to 6.
+
+- Step 0 is built: the context switch of a fiber, its tests, and a probe that measures the switch.
+  The numbers of the probe are in [bench/results](bench/results).
+- Step 1 is built: `Fibers(Reactor)`, a `std.Io` on fibers over one reactor, on one thread. It
+  runs the std tasks, the `Io.Group` calls, cancel, the futexes, `now`, `sleep` and `netLookup`.
+  Each other call goes to `rest`, a `std.Io` that the program hands over. The
+  [seventh decision record](docs/decisions/0007-step-1-the-fibers-on-one-thread.md) holds the
+  rulings on its names, its checks and its first numbers.
+- Step 2, the wake from another thread, is not started.
+
+A program uses it so:
+
+```zig
+const Reactor = rotor.Reactor(rotor.Loop);
+const Fibers = tejedor.Fibers(Reactor);
+
+var fibers: Fibers = undefined;
+try fibers.init(&reactor, memory, rest, &.{});
+defer fibers.deinit();
+
+const io = fibers.io();
+var served = try io.concurrent(serve, .{io});
+try served.await(io);
+```
+
+The program makes the reactor, with `Fibers.operations(&options)` more operations, and hands
+`init` a block of `Fibers.memory_bytes(&options)` bytes. While the value lives, only the package
+ticks the reactor. [CLAUDE.md](CLAUDE.md) says where each ruling is, under "Where the work stands".
 
 ## What it needs
 

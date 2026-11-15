@@ -31,6 +31,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const bench = @import("build/bench.zig");
+const halt = @import("build/halt.zig");
 const linux = @import("build/linux.zig");
 const switch_checks = @import("build/switch_checks.zig");
 const tools = @import("build/tools.zig");
@@ -46,6 +47,9 @@ comptime {
 /// The program that must not compile, and the module that it imports.
 const compile_fail_source = "tools/compile_fail/zig_version_other.zig";
 const zig_version_source = "src/zig_version.zig";
+
+/// The program that hands `Fibers` a type that lacks two declarations.
+const fibers_compile_fail_source = "tools/compile_fail/fibers_without_tick.zig";
 
 /// The root file of the module `tejedor`.
 const root_source_file = "src/tejedor.zig";
@@ -103,10 +107,20 @@ pub fn build(b: *std.Build) void {
     const linux_steps = linux.add(b, .{ .modes = &test_modes, .suites = &.{
         .{ .name = "tejedor", .module = test_module },
         .{ .name = "bench", .module = bench.probe_module },
-    } });
+    }, .rotor = .{ .name = "rotor", .module = rotor_module } });
     test_step.dependOn(linux_steps.compile);
+    // The halt scenarios, on the host and for the Linux gate (build/halt.zig).
+    const halt_options: halt.Options = .{ .modes = &test_modes, .tejedor = test_module, .rotor = rotor_module };
+    test_step.dependOn(halt.add(b, target, halt_options));
+    halt.add_linux(b, halt_options, .{ .compile_step = linux_steps.compile, .stamp_step = linux_steps.stamp });
     // The programs that measure the package.
-    bench.add(b, .{ .target = target, .test_step = test_step, .modes = &test_modes });
+    bench.add(b, .{
+        .target = target,
+        .test_step = test_step,
+        .modes = &test_modes,
+        .tejedor = test_module,
+        .rotor = rotor_module,
+    });
 
     // The check of the Zig version must stop a compile, with its message. So must a call of the
     // context switch in a form that the package does not use on its architecture.
@@ -165,7 +179,33 @@ fn compile_fail_step(b: *std.Build, target: std.Build.ResolvedTarget) *std.Build
         "Require each program of tools/compile_fail to stop its compile with its message",
     );
     step.dependOn(&compile.step);
+    step.dependOn(fibers_compile_fail(b, target));
     return step;
+}
+
+/// The program of `tools/compile_fail/fibers_without_tick.zig` hands `Fibers` a type that lacks
+/// `tick` and `shared`. Its compile must fail, and the message must name both (rotor's decision
+/// 34, step 1).
+fn fibers_compile_fail(b: *std.Build, target: std.Build.ResolvedTarget) *std.Build.Step {
+    const module = b.createModule(.{
+        .root_source_file = b.path(fibers_compile_fail_source),
+        .target = target,
+        .optimize = .Debug,
+    });
+    module.addImport("tejedor", test_module(b, target, .Debug));
+    const compile = b.addTest(.{ .name = "fibers_without_tick", .root_module = module });
+    // Each line of the errors ends with the line of the same place here.
+    compile.expect_errors = .{ .exact = &.{
+        "error: tejedor.Fibers(fibers_without_tick.NoTick): " ++
+            "the type lacks 2 declarations that the package needs:",
+        "tick: the tick, which only the package calls while the value lives",
+        "shared: the view, for a cross-core call",
+        "A program passes rotor.Reactor(rotor.Loop), and a test can pass " ++
+            "rotor.Reactor(Twin) for a twin (rotor's decision 34, \"Over a twin\").",
+        "note: called at comptime here",
+        "note: called at comptime here",
+    } };
+    return &compile.step;
 }
 
 /// rotor's public module at the pinned tag, for `target`. rotor's build offers Debug and

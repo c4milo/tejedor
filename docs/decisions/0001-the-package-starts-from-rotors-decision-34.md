@@ -92,6 +92,10 @@ Camilo ruled one name: `tejedor`. Each other public name of the package is a pro
 rules it with the code. The names of the pinned text are proposals too, such as `Fibers`, `perform`
 and `call`.
 
+*Noted on 2026-11-14.* Camilo ruled the names of step 1 with its code: the names of the sketch of
+the pinned text, and `supported`. Record 7 lists them. `perform`, `call`, `WakePath`,
+`set_wake_path`, `Options.loop_id` and `Options.sockets` are still proposals.
+
 ## Sources
 
 - rotor's decision 34 at `128b8da`: "Ruling, 2026-11-09", "Rulings, 2026-11-10", "The decision, as

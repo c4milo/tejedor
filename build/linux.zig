@@ -43,13 +43,13 @@ const stamp_name = ".test-linux-stamp";
 const manifest_name = "tests.manifest";
 
 /// One processor that the Linux gate runs the tests on.
-const Processor = struct {
+pub const Processor = struct {
     arch: std.Target.Cpu.Arch,
     /// The platform that `docker run --platform` takes for this processor.
     docker_platform: []const u8,
 };
 
-const processors = [_]Processor{
+pub const processors = [_]Processor{
     .{ .arch = .aarch64, .docker_platform = "linux/arm64" },
     .{ .arch = .x86_64, .docker_platform = "linux/amd64" },
 };
@@ -76,12 +76,19 @@ pub const Options = struct {
     modes: []const Mode,
     /// Each set of unit tests, in the order in which they run.
     suites: []const Suite,
+    /// rotor's public module, for the tool that prints the backend.
+    rotor: Suite,
 };
+
+/// The tool that prints the backend that rotor chooses in a container.
+const backend_source = "tools/linux_backend.zig";
 
 /// The steps that this file adds.
 pub const Steps = struct {
     /// Compiles each Linux test executable, and installs none. `zig build test` depends on it.
     compile: *std.Build.Step,
+    /// Touches the stamp after each install. build/halt.zig joins its installs to it.
+    stamp: *std.Build.Step,
 };
 
 /// Adds the steps `test-linux` and `test-linux-compile`.
@@ -111,6 +118,7 @@ pub fn add(b: *std.Build, options: Options) Steps {
         }
     }
     assert(manifest.len > 0);
+    for (processors) |processor| add_backend_tool(b, processor, options.rotor, compile_step, &stamp.step);
 
     const manifest_file = b.addWriteFiles().add(manifest_name, manifest);
     const install_manifest = b.addInstallFileWithDir(
@@ -125,7 +133,7 @@ pub fn add(b: *std.Build, options: Options) Steps {
         "Build the unit tests for Linux on aarch64 and x86-64, for tools/linux_test.sh",
     );
     step.dependOn(&stamp.step);
-    return .{ .compile = compile_step };
+    return .{ .compile = compile_step, .stamp = &stamp.step };
 }
 
 /// The steps that each test executable joins.
@@ -154,6 +162,33 @@ fn add_tests(
     });
     joins.stamp_step.dependOn(&install.step);
     return name;
+}
+
+/// The tool that prints the backend, for one processor, as `linux_backend-<arch>`. It is a tool,
+/// so it compiles in Debug.
+fn add_backend_tool(
+    b: *std.Build,
+    processor: Processor,
+    rotor: Suite,
+    compile_step: *std.Build.Step,
+    stamp_step: *std.Build.Step,
+) void {
+    const target = linux_target(b, processor.arch);
+    const module = b.createModule(.{
+        .root_source_file = b.path(backend_source),
+        .target = target,
+        .optimize = .Debug,
+    });
+    module.addImport(rotor.name, rotor.module(b, target, .Debug));
+    const tool = b.addExecutable(.{
+        .name = b.fmt("linux_backend-{s}", .{@tagName(processor.arch)}),
+        .root_module = module,
+    });
+    compile_step.dependOn(&tool.step);
+    const install = b.addInstallArtifact(tool, .{
+        .dest_dir = .{ .override = .{ .custom = install_directory } },
+    });
+    stamp_step.dependOn(&install.step);
 }
 
 /// Linux on `arch`, with the musl ABI and the baseline CPU model.

@@ -30,6 +30,11 @@ record 6 that switch was the switch of the package on x86-64, under rows L1 and 
 Until 2026-11-14 `bench/jump_switch.zig` held the jump, as the candidate of record 5, with no row.
 Record 6 moved it to `src/switch_jump.zig`, with rows L4 to L6, and the file went.
 
+Step 1 adds no file and no row. Its files cast the `userdata` of the table, a future, the state of
+an `Io.Group`, the argument of a new fiber, and the memory that `init` carves. std's own `std.Io`
+code makes the same casts, and none of them is a technique of rotor's decision 7. That reading is a
+choice of the session, and Camilo has not read it (record 7, choice 9).
+
 ## The rows
 
 | id | file and function | technique | why plain Zig cannot do it | what checks it | date |

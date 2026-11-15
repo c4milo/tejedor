@@ -35,12 +35,20 @@ comptime {
 
 const reason = "tejedor names no allocator; the program hands over the memory at init";
 
+/// The one call of `std.heap` that the package makes: the size of a page of the host, for the
+/// guard page of each stack (rotor's decision 34, question 5). It names no allocator. The
+/// exception is a choice of the session of 2026-11-14 (record 7).
+const exceptions = [_]forbidden_references.Exception{
+    .{ .prefix = "std.heap", .last_segment_prefixes = &.{"pageSize"} },
+};
+
 /// The configuration. It reads `src/` alone, because the build links no file outside `src/` into
 /// the package.
 pub const config: forbidden_references.Config = .{
     .name = "heap",
     .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
     .prefixes = &forbidden_prefixes,
+    .exceptions = &exceptions,
     .parameter_check = .{ .type_segment = "Allocator", .description = "an allocator parameter" },
     .reason = reason,
 };
@@ -82,6 +90,21 @@ test "heap flags std.heap and an allocator parameter, init included" {
     try harness.expect_messages(findings, &.{
         "reference to std.heap.ArenaAllocator: " ++ reason,
         "init takes an allocator parameter: " ++ reason,
+    });
+}
+
+test "heap passes the size of a page, and flags each other name of std.heap" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try harness.run(arena_state.allocator(), Rule, "src/memory.zig",
+        \\const std = @import("std");
+        \\pub fn page_bytes() usize {
+        \\    return std.heap.pageSize();
+        \\}
+        \\const page = std.heap.page_allocator;
+    );
+    try harness.expect_messages(findings, &.{
+        "reference to std.heap.page_allocator: " ++ reason,
     });
 }
 

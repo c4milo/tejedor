@@ -23,6 +23,7 @@ const pepegrillo = @import("pepegrillo");
 /// The scopes that CLAUDE.md names: one for each part of the package.
 pub const part_scopes = [_][]const u8{
     "switch",
+    "fibers",
     "bench",
     "tools",
 };
@@ -85,7 +86,7 @@ fn expect_findings(text: []const u8, expected: []const []const u8) !void {
 test "each scope that CLAUDE.md names passes" {
     // The scopes are written out here and not read from `part_scopes`. So this test fails when a
     // scope leaves that list.
-    const scopes = [_][]const u8{ "switch", "bench", "tools" };
+    const scopes = [_][]const u8{ "switch", "fibers", "bench", "tools" };
     try testing.expectEqual(scopes.len, part_scopes.len);
     for (scopes) |scope| {
         var buffer: [96]u8 = undefined;
@@ -103,7 +104,7 @@ test "a well-formed scope outside the table draws a warning" {
     // `windows` cannot become a part of the package: the package runs on macOS and Linux alone.
     try expect_findings("feat(windows): add the completion port\n", &.{
         "warning: scope-known: the scope \"windows\" is not a part of the package" ++
-            " (switch, bench, tools)",
+            " (switch, fibers, bench, tools)",
     });
 }
 

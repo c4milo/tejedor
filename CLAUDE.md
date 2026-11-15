@@ -43,6 +43,9 @@ tejedor is not:
 - `docs/decisions/0006-the-jump-is-the-switch-of-x86-64.md` makes the jump, a function in assembly
   that saves the callee-saved registers itself, the switch of x86-64. Read it before you change the
   switch of x86-64, or its first stack.
+- `docs/decisions/0007-step-1-the-fibers-on-one-thread.md` holds the rulings of 2026-11-14 on the
+  public names and the limits, what step 1 built, its checks and mutations, and the choices of the
+  session. Read it before you change a file of the fibers.
 - `docs/decisions/` holds the records of tejedor. Each later record takes the next number.
 
 If you are about to do something a record rejected, say so and stop. Do not reverse it in code.
@@ -57,8 +60,9 @@ A record whose status is "proposed" does not yet allow what it describes.
    not be.
 2. **One thread owns a `Fibers` value.** Each fiber of a value runs on the thread that owns the
    reactor. The package starts no thread. Only `futexWake` may come from another thread, and each
-   other call halts there (decision 34, questions 8 and 15). `Fibers` is the name of the design,
-   and it is a proposal.
+   other call halts there (decision 34, questions 8 and 15). At step 1, `futexWake` from another
+   thread halts too, and step 2 makes it work. Camilo ruled the name `Fibers` on 2026-11-14
+   (record 7).
 3. **The package calls `tick`, and the program makes the reactor** (decision 34, questions 2 and
    11). While the value lives, the package is the one caller of `tick`. The program keeps each
    other call of the reactor.
@@ -134,13 +138,15 @@ pinned rotor. So that build stops with a parse error and no reason. With that Zi
 An assertion is a check too. A Zig test cannot expect a panic in its own process. So an
 assertion that a caller's mistake can reach gets a halt scenario. A scenario is a program that
 breaks the assertion in a child process, and that process must die by a signal (decision 34,
-"Upkeep"). The halt check comes with step 1, which lists its first eight scenarios (decision 34,
-"Build order"). The package has no halt check before that step.
+"Upkeep"). `zig build halt-check` runs each scenario of `tools/halt/` in Debug and in
+ReleaseSafe. Measure a mutation of such a check against it.
 
-Two assertions wait for the halt check: the two of `initial_context` in `src/switch.zig`. A
-caller's mistake reaches both, with a stack end that is not aligned, or with a stack end of 0. A
-mutation that deletes them is NOT CAUGHT today. Their two scenarios come beside the eight of step
-1.
+- Each scenario names a text that its panic prints, and the check requires that text. So a halt of
+  another kind does not pass. An `assert` prints `reached unreachable code`, and a halt of the
+  package prints its message.
+- A watchdog ends a scenario after 10 s. A scenario whose check is deleted can wait with no end.
+- A new check that a caller's mistake reaches gets its scenario in the same commit. A check that
+  another check always reaches first cannot be proved: remove it.
 
 ## Performance discipline
 
@@ -229,12 +235,14 @@ with its own programs under `bench/` in the place of rotor's harness.
   | scope | part |
   |---|---|
   | `switch` | the context switch of a fiber, and its tests |
+  | `fibers` | `Fibers`, its scheduler, the calls of the table, and their tests |
   | `bench` | the probe, and each program that measures the package |
   | `tools` | developer tools |
 
   A commit that adds a part of the library adds its scope to this table. A commit that touches the
-  build files or the root file alone takes no scope. The three scopes and these two rules are a
-  proposal of the session of 2026-11-12, and Camilo has not ruled on them.
+  build files or the root file alone takes no scope. The scopes and these two rules are a
+  proposal of the session of 2026-11-12, and Camilo has not ruled on them. The session of
+  2026-11-14 added `fibers`.
 - The description is imperative, starts with a lowercase letter, and ends without a period. The
   subject line stays at or under 72 columns.
 - Exactly one blank line separates the body from the subject. A body line stays at or under 100
@@ -299,6 +307,22 @@ rotor on 2026-09-22.
   alone.
 - `build/switch_checks.zig` holds the checks of the switch that are compiles. One of them builds
   `tools/switch_reserved.zig`, a copy of the switch, for each target of `zig build test-reserved`.
+- `src/fibers.zig` holds `Fibers(Reactor)` and its table. Its pieces are `src/reactor_check.zig`,
+  the check of the reactor's type, `src/fiber.zig`, the record of a context, `src/lists.zig`, the
+  lists of the contexts, `src/memory.zig`, the memory and the guard pages, `src/run.zig`, the
+  scheduler and the tick, `src/tasks.zig`, `src/groups.zig`, `src/wait.zig`, `src/lookup.zig` and
+  `src/rest.zig`. Each function of a piece takes the value as `fibers: anytype`, and a type
+  function of a piece holds only the calls of the table, because the lint scores a type function
+  as one function. The limits are in `src/constants.zig`.
+- `src/fibers_test.zig` holds the fixture of the tests on the host's reactor, and its pieces hold
+  the other tests of the fibers. `src/fibers_test_twin.zig` is the package's own twin, and
+  `src/fibers_test_replay.zig` runs the calls of std tasks over it twice.
+- `tools/halt_check.zig` and `tools/halt/` hold the halt check and its scenarios, after rotor's.
+  `build/halt.zig` builds them for the host and for the Linux gate.
+- `tools/linux_backend.zig` prints the backend that rotor chooses in a container, and whether a
+  reactor starts there. The Linux gate runs it before the tests of a platform.
+- `bench/std_io_timers.zig` is rotor's timer program with a branch for the package, and
+  `bench/timers_harness.zig` holds the parts of rotor's harness that it uses.
 - `docs/hot-path-ledger.md` is the ledger of the package for ugly code, such as assembly
   (decision 34, "What it keeps"). Each use has a row there. `src/switch.zig` and
   `src/switch_jump.zig` are the two files of the library that hold such code.
@@ -354,7 +378,8 @@ Ask Camilo before you do one of these:
 - One mode alone: `zig build test-debug` and `zig build test-release`.
 - Compile-fail check: `zig build test-compile-fail` builds each program of `tools/compile_fail/`,
   and each compile must fail with its message. One program hands the check of the Zig version
-  another version. Two ask for the form of the switch that the package does not use. One asks for
+  another version. One hands `Fibers` a type that lacks `tick` and `shared`, and the message must
+  name both. Two ask for the form of the switch that the package does not use. One asks for
   a copy on x86-64, and Zig refuses an inline call through the cast of the jump (record 6). One
   asks for a call on aarch64 (record 5). `zig build test` runs this step too.
 - Check of Windows: `zig build test-windows` compiles the tests of `src/switch.zig` for Windows on
@@ -370,6 +395,11 @@ Ask Camilo before you do one of these:
   `ffr` on a processor with SVE. It reserves `x18` on the systems of Apple, Android, OpenHarmony,
   Fuchsia, UEFI and Windows, and with the feature `reserve_x18`. The aarch64 list names neither
   there (record 5). `zig build test` runs this step too.
+- Halt check: `zig build halt-check` runs each scenario of `tools/halt/` in Debug and in
+  ReleaseSafe, and the canary. `zig build test` runs this step too.
+- Timer program: `zig build bench-timers -- --backend tejedor --timers 256` runs the timer
+  program in ReleaseSafe. `--backend threaded` runs `std.Io.Threaded`. Record 7 says how its
+  first numbers ran, beside rotor's `rotor_timers`.
 - Tests that do not run: a plain `zig build test` prints nothing for a test that it does not
   run. `zig build test --summary all` counts them for each step, and the Linux gate prints a
   `SKIP` line for each one. The test of `src/switch_test_entry.zig` makes system calls of Linux,
@@ -391,8 +421,13 @@ Ask Camilo before you do one of these:
   - The script refuses an install that is older than a source, and it fails a container that
     runs longer than the limit of `tools/docker_limit.sh`.
   - `zig build test` does not run the gate, because it needs Docker.
-  - The tests of step 0 enter no io_uring. Step 1 adds the runs with io_uring and with epoll
-    (decision 34, "Upkeep").
+  - Each test executable of the package runs twice: with io_uring, in a container whose seccomp
+    profile is relaxed, and with epoll, under Docker's default profile. `tools/linux_backend.zig`
+    proves the backend of each kind of container first. The halt check runs with both too.
+  - Rosetta lacks system calls of rotor: it gives no io_uring ring, and the `init` of an epoll
+    reactor returns `Unsupported`. So on the development Mac each x86-64 test that needs a
+    reactor skips, and so do the halt scenarios of `Fibers`, and the script says so. The job
+    `linux-gate` of CI runs the gate on each Linux platform with its own processor.
 - Probe of the context switch: `zig build bench-switch -- --machine <name>` builds the probe in
   ReleaseSafe and runs it on this host. The report is Markdown on standard output. It gives each
   form of the switch in three shapes: in the loop, in one function that both sides call, and in a
@@ -508,7 +543,7 @@ processors. Camilo read the numbers, and ruled a third round:
 | step | what it holds | state |
 |---:|---|---|
 | 0 | the context switch of a fiber, its tests and its probe | built on 2026-11-12, and changed by the rulings of 2026-11-13 and 2026-11-14. The probe has no number from a quiet machine |
-| 1 | contexts, std tasks, `Io.Group`s, cancel, futexes, `now`, `sleep` and the `netLookup` wrapper, on one thread | not started |
+| 1 | contexts, std tasks, `Io.Group`s, cancel, futexes, `now`, `sleep` and the `netLookup` wrapper, on one thread | built on 2026-11-14 (record 7). Its first numbers are from a busy machine |
 | 2 | the wake from another thread | not started |
 | 3 | the calls of the package's own: `perform` and `call` | not started |
 | 4 | the network calls and `fileClose`, with the batch calls for one `net_receive` with its deadline | not started |
@@ -519,7 +554,16 @@ The first release holds steps 0 to 5. Step 4 carries one part of step 6, the bat
 `net_receive`, by the ruling of 2026-11-11 under question 19. The rest of step 6 waits for a
 consumer.
 
-Camilo reads the numbers of the probe before step 1, so nothing of step 1 is built before he does.
+Camilo closed step 0 on 2026-11-14, and asked for step 1. He ruled four questions of step 1 that
+day, and chose the first choice of each (record 7):
+
+| what Camilo ruled on 2026-11-14, for step 1 | where it shows |
+|---|---|
+| The public names of step 1 are the names of the sketch of decision 34 | `src/tejedor.zig`, and record 7 |
+| tejedor exports `supported`, and `Fibers` fails to compile where it is false | `src/tejedor.zig` and `src/fibers.zig` |
+| The named limits of step 1 have the values of decision 34 and decision 22 | `src/constants.zig` |
+| The first numbers come now, from a copy of rotor's timer program | `bench/std_io_timers.zig`, and record 7 |
+
 He reads the results of step 5 before a release.
 
 The package holds the build files, the root file with no public name and the check of the Zig

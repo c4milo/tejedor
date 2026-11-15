@@ -10,6 +10,9 @@
 //!   Docker. The step touches a stamp file last, and that script refuses an install that is older
 //!   than a source, as tools/linux_test.sh does (build/linux.zig).
 //! - `zig build test-bench`: the unit tests of the bench programs, in Debug and in ReleaseSafe.
+//! - `zig build bench-timers`: builds the timer program, `bench/std_io_timers.zig`, for the host,
+//!   and runs it. The arguments after `--` go to the program. It is rotor's program of the timer
+//!   workload, with a branch for the package (rotor's decision 34, "The timer program").
 //!
 //! A probe always builds in ReleaseSafe, the mode of a release build, whatever `-Drelease` says.
 //! The package gives no number for a Debug build.
@@ -26,6 +29,16 @@ const linux = @import("linux.zig");
 
 /// The probe of the context switch.
 const switch_probe_source = "bench/switch_probe.zig";
+
+/// The timer program, which takes the modules `tejedor` and `rotor`.
+const timers_source = "bench/std_io_timers.zig";
+
+/// A module that the timer program imports, for a target and a mode.
+pub const ModuleFn = *const fn (
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module;
 
 /// The file of the package that the probe measures.
 const switch_source = "src/switch.zig";
@@ -53,6 +66,10 @@ pub const Options = struct {
     test_step: *std.Build.Step,
     /// Each mode that `zig build test` runs the unit tests in.
     modes: []const linux.Mode,
+    /// The module `tejedor`, with its import of rotor, for the timer program.
+    tejedor: ModuleFn,
+    /// rotor's public module, for the timer program.
+    rotor: ModuleFn,
 };
 
 /// Adds each step of this file.
@@ -100,7 +117,39 @@ pub fn add(b: *std.Build, options: Options) void {
         const run_tests = &b.addRunArtifact(tests).step;
         tests_step.dependOn(run_tests);
         options.test_step.dependOn(run_tests);
+        const timers_tests = b.addTest(.{
+            .name = b.fmt("bench-timers-{s}", .{mode.name}),
+            .root_module = timers_module(b, options, mode.optimize),
+        });
+        const run_timers_tests = &b.addRunArtifact(timers_tests).step;
+        tests_step.dependOn(run_timers_tests);
+        options.test_step.dependOn(run_timers_tests);
     }
+    add_timers(b, options);
+}
+
+/// `zig build bench-timers`: the timer program in ReleaseSafe, for the host.
+fn add_timers(b: *std.Build, options: Options) void {
+    const program = b.addExecutable(.{
+        .name = "std_io_timers",
+        .root_module = timers_module(b, options, probe_optimize),
+    });
+    options.test_step.dependOn(&program.step);
+    const run = b.addRunArtifact(program);
+    if (b.args) |arguments| run.addArgs(arguments);
+    const step = b.step("bench-timers", "Build the timer program in ReleaseSafe, and run it");
+    step.dependOn(&run.step);
+}
+
+fn timers_module(b: *std.Build, options: Options, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+    const module = b.createModule(.{
+        .root_source_file = b.path(timers_source),
+        .target = options.target,
+        .optimize = optimize,
+    });
+    module.addImport("tejedor", options.tejedor(b, options.target, optimize));
+    module.addImport("rotor", options.rotor(b, options.target, optimize));
+    return module;
 }
 
 /// The probe as an executable for `target`, in the mode of each probe.
