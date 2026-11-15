@@ -542,7 +542,7 @@ processors. Camilo read the numbers, and ruled a third round:
 
 | step | what it holds | state |
 |---:|---|---|
-| 0 | the context switch of a fiber, its tests and its probe | built on 2026-11-12, and changed by the rulings of 2026-11-13 and 2026-11-14. The probe has no number from a quiet machine |
+| 0 | the context switch of a fiber, its tests and its probe | built on 2026-11-12, and changed by the rulings of 2026-11-13 and 2026-11-14. The final numbers of the probe on aarch64 are from `mac` and `orbstack` on 2026-11-15. Its numbers on x86-64 are from CI |
 | 1 | contexts, std tasks, `Io.Group`s, cancel, futexes, `now`, `sleep` and the `netLookup` wrapper, on one thread | built on 2026-11-14 (record 7). Its first numbers are from a busy machine |
 | 2 | the wake from another thread | not started |
 | 3 | the calls of the package's own: `perform` and `call` | not started |

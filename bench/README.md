@@ -151,9 +151,12 @@ A run on a busy machine is no final number. Each file of `bench/results/` says w
 | `results/switch-orbstack-2026-11-13.md` | `orbstack` | four busy runs, at load averages of 28 to 42 on the host, and no final number |
 | `results/switch-mac-2026-11-13-shapes.md` | `mac` | three busy runs of the three shapes, and no final number |
 | `results/switch-github-2026-11-14.md` | `github` | three CI runs at `ba1daf0`, each on another runner and another x86-64 processor, and no number of a quiet machine. Record 6 reads them |
+| `results/switch-mac-2026-11-15.md` | `mac` | three runs at `4f5f215`, at 1-minute load averages of 2.79 to 3.05, and the final numbers of `mac` |
+| `results/switch-orbstack-2026-11-15.md` | `orbstack` | three runs at `4f5f215`, at 1-minute load averages of the host of 3.05 to 3.76, and the final numbers of `orbstack` |
 
-No run on a quiet `mac` exists yet. The first CI run, on 2026-11-13, is in record 5 and in no file
-of `results/`.
+The runs of 2026-11-15 replace the busy runs of 2026-11-13 as the numbers to read. The busy files
+stay, as the record of those runs. The first CI run, on 2026-11-13, is in record 5 and in no file of
+`results/`.
 
 ## Files
 
